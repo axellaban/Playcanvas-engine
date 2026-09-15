@@ -56,6 +56,22 @@ export default [
         }
     },
     {
+        // inmo3d is an app (Node server + browser UI), not engine source: the public-API JSDoc
+        // rules and module resolution of 'playcanvas' (it uses an import map) don't apply there.
+        files: ['inmo3d/**/*.mjs'],
+        rules: {
+            'import/no-unresolved': 'off',
+            'jsdoc/require-param': 'off',
+            'jsdoc/require-param-type': 'off',
+            'jsdoc/require-param-description': 'off',
+            'jsdoc/require-returns': 'off',
+            'no-alert': 'off',
+            'no-await-in-loop': 'off',
+            'no-use-before-define': 'off',
+            'require-atomic-updates': 'off'
+        }
+    },
+    {
         ignores: [
             'examples/assets/wasm/*',
             'scripts/textmesh/*.min.js',
