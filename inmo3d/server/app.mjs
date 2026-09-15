@@ -1,0 +1,217 @@
+// La API. Corre igual como servidor local (server/index.mjs) o como función de Vercel (api/).
+import * as store from './store.mjs';
+import * as storage from './storage.mjs';
+import * as pipe from './pipeline.mjs';
+import * as ai from './ai.mjs';
+
+const json = (res, data, code = 200) => {
+    res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(data));
+};
+const fail = (res, err, code = 400) => json(res, { error: err instanceof Error ? err.message : String(err) }, code);
+
+/** El runtime de Vercel a veces ya parseó el cuerpo; si no, lo leemos del stream. */
+export async function readJson(req, limit = 8 * 1024 * 1024) {
+    if (req.body !== undefined && req.body !== null) {
+        return typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body;
+    }
+    const buf = await readRaw(req, limit);
+    return buf.length ? JSON.parse(buf.toString()) : {};
+}
+
+export async function readRaw(req, limit = 8 * 1024 * 1024) {
+    const chunks = [];
+    let size = 0;
+    for await (const c of req) {
+        size += c.length;
+        if (size > limit) {
+            throw new Error('El archivo es demasiado grande para subirlo por acá. ' +
+                'En Vercel el límite por request es 4,5 MB: los archivos grandes van directo al Blob.');
+        }
+        chunks.push(c);
+    }
+    return Buffer.concat(chunks);
+}
+
+/** Emite el token para que el navegador suba directo al Blob, sin pasar por la función. */
+async function blobUploadToken(req, res) {
+    if (!storage.isBlob) return fail(res, 'Este servidor no usa Vercel Blob.', 409);
+    const { handleUpload } = await import('@vercel/blob/client');
+    const body = await readJson(req);
+    const result = await handleUpload({
+        body,
+        request: req,
+        onBeforeGenerateToken: () => Promise.resolve({
+            allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/octet-stream'],
+            addRandomSuffix: false,
+            allowOverwrite: true,
+            maximumSizeInBytes: 1024 * 1024 * 1024
+        }),
+        onUploadCompleted: async () => { /* el cliente confirma con POST .../attach */ }
+    });
+    return json(res, result);
+}
+
+export async function api(req, res, url) {
+    const seg = url.pathname.replace(/^\/api\//, '').split('/').filter(Boolean);
+    const { method } = req;
+    const q = url.searchParams;
+
+    if (seg[0] === 'config' && method === 'GET') {
+        return json(res, {
+            ai: ai.config(),
+            storage: storage.driver,
+            vercel: storage.onVercel,
+            canReconstruct: pipe.available(),
+            writable: !(storage.onVercel && !storage.isBlob)
+        });
+    }
+
+    if (seg[0] === 'blob' && seg[1] === 'upload' && method === 'POST') return blobUploadToken(req, res);
+
+    if (seg[0] !== 'properties') return json(res, { error: 'Ruta desconocida.' }, 404);
+
+    if (seg.length === 1) {
+        if (method === 'GET') return json(res, await store.listProperties());
+        if (method === 'POST') return json(res, await store.createProperty((await readJson(req)).meta || {}), 201);
+        return json(res, { error: 'Método no permitido.' }, 405);
+    }
+
+    const id = seg[1];
+    const action = seg[2];
+
+    if (!action) {
+        if (method === 'GET') {
+            const prop = await store.getProperty(id);
+            return prop ? json(res, prop) : json(res, { error: 'Propiedad inexistente.' }, 404);
+        }
+        if (method === 'PATCH') {
+            const prop = await store.patchProperty(id, await readJson(req));
+            return prop ? json(res, prop) : json(res, { error: 'Propiedad inexistente.' }, 404);
+        }
+        if (method === 'DELETE') return json(res, { ok: await store.deleteProperty(id) });
+        return json(res, { error: 'Método no permitido.' }, 405);
+    }
+
+    const prop = await store.getProperty(id);
+    if (!prop) return json(res, { error: 'Propiedad inexistente.' }, 404);
+
+    // ---- fotos (subida directa, para archivos chicos y para el servidor local)
+    if (action === 'photos') {
+        if (method === 'POST') {
+            const name = q.get('name') || 'foto.jpg';
+            const media = await store.putMedia(id, 'photos', name, await readRaw(req),
+                req.headers['content-type'] || 'image/jpeg');
+            const entry = { ...media, addedAt: new Date().toISOString() };
+            prop.photos = [...prop.photos.filter(p => p.file !== entry.file), entry];
+            await store.saveProperty(prop);
+            return json(res, entry, 201);
+        }
+        if (method === 'DELETE') {
+            const file = seg[3];
+            prop.photos = prop.photos.filter(p => p.file !== file);
+            await store.saveProperty(prop);
+            return json(res, { ok: true });
+        }
+    }
+
+    // ---- splat ya entrenado: archivo chico por acá, o URL pública / Blob por attach
+    if (action === 'splat' && method === 'POST') {
+        const name = q.get('name') || 'model.sog';
+        if (!/\.(?:sog|ply|spz|json)$/i.test(name)) {
+            return fail(res, 'Formato no soportado: usá .sog, .ply (o .compressed.ply) o .spz.');
+        }
+        const media = await store.putMedia(id, 'splat', name, await readRaw(req, 64 * 1024 * 1024));
+        prop.scene.splat = media.key;
+        prop.scene.splatUrl = media.url;
+        prop.job = { status: 'done', step: 'listo', progress: 100, finishedAt: new Date().toISOString() };
+        await store.saveProperty(prop);
+        return json(res, media, 201);
+    }
+
+    // ---- registrar un archivo que ya está subido (Blob directo o URL externa)
+    if (action === 'attach' && method === 'POST') {
+        const { kind, url: fileUrl, file, bytes } = await readJson(req);
+        if (!/^https?:\/\//.test(fileUrl || '')) return fail(res, 'Mandá una URL http(s) válida.');
+        if (kind === 'splat') {
+            if (!/\.(?:sog|ply|spz)(?:$|\?)/i.test(fileUrl)) {
+                return fail(res, 'La URL tiene que terminar en .sog, .ply o .spz.');
+            }
+            prop.scene.splat = file || fileUrl;
+            prop.scene.splatUrl = fileUrl;
+            prop.job = { status: 'done', step: 'listo', progress: 100, finishedAt: new Date().toISOString() };
+        } else {
+            const entry = { file: file || fileUrl.split('/').pop(), url: fileUrl, bytes: bytes ?? 0, addedAt: new Date().toISOString() };
+            prop.photos = [...prop.photos.filter(p => p.file !== entry.file), entry];
+        }
+        await store.saveProperty(prop);
+        return json(res, { ok: true, scene: prop.scene, photos: prop.photos.length }, 201);
+    }
+
+    // ---- reconstrucción (sólo donde hay disco y binarios: local o Docker)
+    if (action === 'reconstruct') {
+        if (method === 'POST') {
+            try {
+                return json(res, await pipe.start(id, await readJson(req)), 202);
+            } catch (e) {
+                return fail(res, e);
+            }
+        }
+        if (method === 'DELETE') return json(res, { stopped: pipe.stop(id) });
+    }
+
+    if (action === 'job' && method === 'GET') {
+        return json(res, { job: prop.job, running: pipe.isRunning(id), log: await pipe.tail(id) });
+    }
+
+    // ---- IA
+    if (action === 'ai' && method === 'POST') {
+        const body = await readJson(req);
+        try {
+            switch (seg[3]) {
+                case 'audit':
+                    prop.ai.audit = { ...await ai.auditPhotos(prop), at: new Date().toISOString() };
+                    await store.saveProperty(prop);
+                    return json(res, prop.ai.audit);
+                case 'listing':
+                    prop.ai.listing = { ...await ai.writeListing(prop, body.extra || ''), at: new Date().toISOString() };
+                    await store.saveProperty(prop);
+                    return json(res, prop.ai.listing);
+                case 'rooms':
+                    prop.ai.rooms = { ...await ai.detectRooms(prop), at: new Date().toISOString() };
+                    await store.saveProperty(prop);
+                    return json(res, prop.ai.rooms);
+                case 'ask':
+                    return json(res, { answer: await ai.askAboutProperty(prop, body.question || '') });
+                case 'stage': {
+                    // body.image llega como data URL desde el visor (la vista renderizada del tour).
+                    const m = String(body.image || '').match(/^data:([^;]+);base64,(.+)$/);
+                    if (!m) return fail(res, 'Mandá la imagen como data URL base64.');
+                    const out = await ai.stage({ b64: m[2], mime: m[1], style: body.style, room: body.room, notes: body.notes });
+                    const name = `staged-${Date.now()}.${out.mime.includes('jpeg') ? 'jpg' : 'png'}`;
+                    const media = await store.putMedia(id, 'staged', name, Buffer.from(out.b64, 'base64'), out.mime);
+                    const entry = { ...media, style: body.style || 'moderno', room: body.room || '', at: new Date().toISOString() };
+                    prop.ai.staged.unshift(entry);
+                    await store.saveProperty(prop);
+                    return json(res, entry, 201);
+                }
+                default:
+                    return json(res, { error: 'Acción de IA desconocida.' }, 404);
+            }
+        } catch (e) {
+            return fail(res, e, 502);
+        }
+    }
+
+    return json(res, { error: 'Ruta desconocida.' }, 404);
+}
+
+/** Punto de entrada para la función serverless. */
+export default async function handler(req, res) {
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    try {
+        await api(req, res, url);
+    } catch (e) {
+        if (!res.headersSent) fail(res, e, 500);
+    }
+}

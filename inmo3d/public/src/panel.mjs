@@ -1,10 +1,8 @@
 // Panel: alta de propiedades, carga de fotos, reconstrucción 3D y las herramientas de IA.
-import { h, $, api, toast, busy, money, copy } from './ui.mjs';
+import { h, $, api, toast, busy, money, copy, config, putFile, downscale } from './ui.mjs';
 
 const view = $('#view');
-let CFG = { ai: { text: false, image: false } };
-
-const media = (id, file) => `/media/${id}/${file}`;
+let CFG = { ai: { text: false, image: false }, storage: 'fs', canReconstruct: true };
 
 // ---------------------------------------------------------------- listado
 
@@ -23,7 +21,7 @@ async function renderList() {
 }
 
 function card(p) {
-    const cover = p.cover ? media(p.id, p.cover) : null;
+    const cover = p.cover;
     return h('article.card', { style: { padding: '12px', cursor: 'pointer' }, onclick: () => go(`#/p/${p.id}`) },
         h('div.thumb', { style: cover ? { backgroundImage: `url(${cover})` } : {} }, cover ? '' : 'sin fotos'),
         h('h3', { style: { margin: '12px 0 2px' } }, p.meta.title),
@@ -55,7 +53,7 @@ async function renderDetail(id) {
         h('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' } },
             h('button.btn.ghost.sm', { onclick: () => go('#/') }, '← Propiedades'),
             h('h1', { style: { margin: 0, flex: '1' } }, prop.meta.title),
-            prop.scene.splat && h('a.btn.primary', { href: `/tour.html?id=${id}`, target: '_blank' }, '▶ Abrir tour 3D'),
+            prop.scene.splatUrl && h('a.btn.primary', { href: `/tour.html?id=${id}`, target: '_blank' }, '▶ Abrir tour 3D'),
             h('button.btn.ghost.sm', {
                 onclick: async () => {
                     if (confirm('¿Borrar la propiedad y todos sus archivos?')) {
@@ -117,7 +115,7 @@ function sectionFicha(prop, save) {
 
 function sectionPhotos(prop, save) {
     const grid = h('div.photos', {}, prop.photos.map(p => h('figure', {},
-        h('img', { src: media(prop.id, `photos/${p.file}`), loading: 'lazy' }),
+        h('img', { src: p.url, loading: 'lazy' }),
         h('button', {
             title: 'Quitar',
             onclick: async (e) => {
@@ -154,17 +152,22 @@ function sectionPhotos(prop, save) {
     async function upload(files) {
         if (!files.length) return;
         let done = 0;
+        drop.style.opacity = 0.6;
         for (const file of files) {
-            drop.style.opacity = 0.6;
             count.textContent = `subiendo ${++done}/${files.length}…`;
-            const up = await api(`/properties/${prop.id}/photos?name=${encodeURIComponent(file.name)}`,
-                { method: 'POST', raw: file, headers: { 'content-type': file.type } });
-            prop.photos.push(up);
-            grid.append(h('figure', {}, h('img', { src: media(prop.id, `photos/${up.file}`) })));
+            try {
+                // Achicamos antes de subir: mejor para el modelo de visión y para el límite de request.
+                const up = await putFile(prop.id, 'photo', await downscale(file), file.name);
+                prop.photos.push(up);
+                grid.append(h('figure', {}, h('img', { src: up.url })));
+            } catch (e) {
+                toast(`${file.name}: ${e.message}`, true, 8000);
+                break;
+            }
         }
         drop.style.opacity = 1;
         count.textContent = `${prop.photos.length} fotos`;
-        toast(`${files.length} foto(s) subidas.`);
+        toast(`Listo: ${prop.photos.length} fotos en total.`);
     }
 
     return h('div.card', {},
@@ -214,7 +217,7 @@ function sectionScene(prop) {
     }
     if (prop.job?.status === 'running') poll();
 
-    const run = h('button.btn.primary', {});
+    const run = h('button.btn.primary', { disabled: !CFG.canReconstruct });
     run.textContent = '🧱 Reconstruir en 3D';
     run.onclick = busy(run, async () => {
         await api(`/properties/${prop.id}/reconstruct`, {
@@ -232,12 +235,27 @@ function sectionScene(prop) {
         onchange: async (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            toast(`Subiendo ${file.name}…`);
-            await api(`/properties/${prop.id}/splat?name=${encodeURIComponent(file.name)}`,
-                { method: 'POST', raw: file });
-            toast('Splat cargado.');
-            location.reload();
+            toast(`Subiendo ${file.name} (${(file.size / 1e6).toFixed(0)} MB)…`, false, 60000);
+            try {
+                await putFile(prop.id, 'splat', file);
+                toast('Splat cargado.');
+                location.reload();
+            } catch (err) {
+                toast(err.message, true, 9000);
+            }
         }
+    });
+
+    // Salida de emergencia: si el splat ya está publicado en otro lado, alcanza con su URL.
+    const urlInput = h('input', { placeholder: 'https://…/model.sog', style: { flex: '1' } });
+    const attach = h('button.btn.sm', {});
+    attach.textContent = 'Usar URL';
+    attach.onclick = busy(attach, async () => {
+        await api(`/properties/${prop.id}/attach`, {
+            method: 'POST', body: { kind: 'splat', url: urlInput.value.trim() }
+        });
+        toast('Splat enlazado.');
+        location.reload();
     });
 
     return h('div.card', {},
@@ -245,6 +263,8 @@ function sectionScene(prop) {
         h('p.dim', { style: { marginTop: 0, fontSize: '.85rem' } },
             'Las fotos se convierten en una nube de Gaussians con COLMAP + un entrenador 3DGS, y se comprimen a ',
             h('code.mono', {}, '.sog'), ', el formato que este motor carga con streaming y LOD.'),
+        !CFG.canReconstruct && h('p.chip.warn', {},
+            'Este deploy no puede reconstruir (necesita COLMAP y GPU): entrená local o en Docker y subí el .sog'),
         h('div.row3', {},
             h('div', {}, h('label', {}, 'SfM'), opts.sfm),
             h('div', {}, h('label', {}, 'Entrenador'), opts.trainer),
@@ -252,8 +272,11 @@ function sectionScene(prop) {
         h('div', { style: { display: 'flex', gap: '8px', margin: '14px 0 10px', flexWrap: 'wrap' } },
             run,
             h('button.btn', { onclick: () => up.click() }, '⬆ Subir splat ya entrenado'), up,
-            prop.scene.splat && h('a.btn.ghost', { href: media(prop.id, prop.scene.splat), download: true },
-                `Descargar ${prop.scene.splat.slice(prop.scene.splat.lastIndexOf('.'))}`)),
+            prop.scene.splatUrl && h('a.btn.ghost', { href: prop.scene.splatUrl, download: true, target: '_blank' },
+                `Descargar ${prop.scene.splatUrl.slice(prop.scene.splatUrl.lastIndexOf('.')).split('?')[0]}`)),
+        h('label', {}, 'o enlazar un splat que ya esté publicado en otra URL'),
+        h('div', { style: { display: 'flex', gap: '6px' } }, urlInput, attach),
+        h('div', { style: { height: '12px' } }),
         h('div.bar', {}, bar), status, log);
 }
 
@@ -399,7 +422,10 @@ async function route() {
 window.addEventListener('hashchange', route);
 $('#new-prop').onclick = newProperty;
 
-CFG = await api('/config');
+CFG = await config();
+if (!CFG.writable) {
+    toast('Este deploy no tiene almacenamiento: creá un Blob Store en Vercel y volvé a desplegar.', true, 15000);
+}
 $('#ai-state').textContent = CFG.ai.text ?
     `IA: ${CFG.ai.textModel}${CFG.ai.image ? ` + ${CFG.ai.imageProvider}` : ''}` : 'IA sin configurar';
 $('#ai-state').className = CFG.ai.text ? 'chip ok' : 'chip warn';

@@ -1,22 +1,12 @@
-// Almacenamiento en disco. Una propiedad = una carpeta con su JSON, sus fotos,
-// su splat y lo que genere la IA. Sin base de datos: todo es portable y copiable.
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+// El modelo de datos. Una propiedad = una carpeta (local o en el Blob) con su property.json,
+// sus fotos, su splat y lo que generó la IA. Sin base de datos: todo es portable y copiable.
+import * as storage from './storage.mjs';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const ROOT = path.resolve(HERE, '..');
-export const DATA_DIR = process.env.INMO3D_DATA ?
-    path.resolve(process.env.INMO3D_DATA) : path.join(ROOT, 'data');
+export { DATA_DIR, ROOT, driver, isBlob, onVercel } from './storage.mjs';
 
-export const propDir = id => path.join(DATA_DIR, id);
-const propFile = id => path.join(propDir(id), 'property.json');
+const KEY = id => `${id}/property.json`;
 
-/**
- * Slug seguro para usar como id o nombre de archivo.
- * @param s
- * @param fallback
- */
+/** Slug seguro para usar como id o nombre de archivo. */
 export const slug = (s, fallback = 'item') => {
     const out = String(s ?? '')
     .normalize('NFD').replace(/\p{Diacritic}/gu, '')
@@ -47,15 +37,17 @@ const defaults = (id, meta = {}) => ({
         notes: '',
         ...meta
     },
-    photos: [],                    // { file, bytes, addedAt }
+    photos: [],                    // { file, url, bytes, addedAt }
     scene: {
-        splat: null,               // ruta relativa dentro de la carpeta de la propiedad
+        splat: null,               // clave del archivo
+        splatUrl: null,            // URL con la que lo pide el visor
         yaw: 0,                    // grados, para enderezar la nube
         pitch: 0,
         roll: 0,
         scale: 1,
         floorY: null,              // altura del piso (se fija con un click en el visor)
         eyeHeight: 1.62,           // altura de los ojos al caminar
+        metersPerUnit: 1,          // calibración métrica
         exposure: 1,
         autoRotate: false
     },
@@ -63,66 +55,43 @@ const defaults = (id, meta = {}) => ({
     hotspots: [],                  // { id, title, body, pos:[x,y,z] }
     measures: [],                  // { id, label, a:[x,y,z], b:[x,y,z], meters }
     ai: { audit: null, listing: null, rooms: null, staged: [] },
-    job: null                      // { id, status, step, progress, log, error, startedAt, finishedAt }
+    job: null                      // { id, status, step, progress, error, startedAt, finishedAt }
 });
 
-export async function ensureData() {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-}
+export const ensureData = () => storage.ensure();
 
-export async function listProperties() {
-    await ensureData();
-    const ids = await fs.readdir(DATA_DIR).catch(() => []);
-    const out = [];
-    for (const id of ids) {
-        const p = await getProperty(id);
-        if (p) {
-            out.push({
-                id: p.id,
-                meta: p.meta,
-                photos: p.photos.length,
-                hasSplat: !!p.scene.splat,
-                job: p.job && { status: p.job.status, step: p.job.step },
-                cover: p.ai?.staged?.[0]?.file ?? p.photos[0]?.file ?? null,
-                updatedAt: p.updatedAt
-            });
-        }
-    }
-    return out.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
-}
-
-export async function getProperty(id) {
-    try {
-        return JSON.parse(await fs.readFile(propFile(id), 'utf8'));
-    } catch {
-        return null;
-    }
-}
+export const getProperty = id => storage.readJson(KEY(id));
 
 export async function saveProperty(prop) {
     prop.updatedAt = new Date().toISOString();
-    await fs.mkdir(propDir(prop.id), { recursive: true });
-    await fs.writeFile(propFile(prop.id), JSON.stringify(prop, null, 2));
+    await storage.writeJson(KEY(prop.id), prop);
     return prop;
 }
 
+export async function listProperties() {
+    await storage.ensure();
+    const ids = await storage.folders();
+    const props = await Promise.all(ids.map(getProperty));
+    return props.filter(Boolean).map(p => ({
+        id: p.id,
+        meta: p.meta,
+        photos: p.photos.length,
+        hasSplat: !!p.scene.splatUrl,
+        job: p.job && { status: p.job.status, step: p.job.step },
+        cover: p.ai?.staged?.[0]?.url ?? p.photos[0]?.url ?? null,
+        updatedAt: p.updatedAt
+    })).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+}
+
 export async function createProperty(meta = {}) {
-    await ensureData();
+    storage.assertWritable();
     const base = slug(meta.title || meta.address, 'propiedad');
     let id = base;
     for (let i = 2; await getProperty(id); i++) id = `${base}-${i}`;
-    const prop = defaults(id, meta);
-    await fs.mkdir(path.join(propDir(id), 'photos'), { recursive: true });
-    await fs.mkdir(path.join(propDir(id), 'splat'), { recursive: true });
-    await fs.mkdir(path.join(propDir(id), 'staged'), { recursive: true });
-    return saveProperty(prop);
+    return saveProperty(defaults(id, meta));
 }
 
-/**
- * Merge superficial por sección: el cliente manda sólo lo que cambió.
- * @param id
- * @param patch
- */
+/** Merge superficial por sección: el cliente manda sólo lo que cambió. */
 export async function patchProperty(id, patch) {
     const prop = await getProperty(id);
     if (!prop) return null;
@@ -139,6 +108,15 @@ export async function patchProperty(id, patch) {
 
 export async function deleteProperty(id) {
     if (!await getProperty(id)) return false;
-    await fs.rm(propDir(id), { recursive: true, force: true });
+    await storage.remove(`${id}/`);
     return true;
 }
+
+/** Guarda un archivo dentro de la carpeta de la propiedad y devuelve { key, url, bytes }. */
+export function putMedia(id, folder, name, data, contentType) {
+    const ext = (name.match(/\.[a-z0-9]+$/i)?.[0] ?? '.bin').toLowerCase();
+    const file = `${slug(name.replace(/\.[^.]+$/, ''), Date.now().toString(36))}${ext}`;
+    return storage.put(`${id}/${folder}/${file}`, data, contentType).then(r => ({ ...r, file }));
+}
+
+export const getMedia = urlOrKey => storage.get(urlOrKey);

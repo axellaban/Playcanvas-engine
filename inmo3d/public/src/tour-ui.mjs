@@ -2,7 +2,7 @@
 // hotspots, home staging con IA y un asistente que le contesta al interesado.
 import { Color } from 'playcanvas';
 import { createViewer, arr, v3 } from './viewer.mjs';
-import { h, $, api, toast, busy, money } from './ui.mjs';
+import { h, $, api, toast, busy, money, config } from './ui.mjs';
 
 const qs = new URLSearchParams(location.search);
 const id = qs.get('id');
@@ -19,15 +19,15 @@ const die = (msg) => {
 
 if (!id) die('Falta el parámetro <code>?id=</code>.');
 const prop = await api(`/properties/${id}`).catch(() => die('No encontré la propiedad.'));
-if (!prop.scene.splat) {
+if (!prop.scene.splatUrl) {
     die(`Esta propiedad todavía no tiene escena 3D.<br><a href="/#/p/${id}">Volver al panel</a>`);
 }
-const CFG = await api('/config');
+const CFG = await config();
 
 $('#loader-text').textContent = 'cargando la casa… (la primera vez tarda un poco)';
 const viewer = await createViewer({
     canvas,
-    splatUrl: `/media/${id}/${prop.scene.splat}`,
+    splatUrl: prop.scene.splatUrl,
     scene: prop.scene,
     gpu: qs.get('gpu') || 'webgl2'
 }).catch(e => die(e.message));
@@ -337,7 +337,7 @@ stageBtn.onclick = busy(stageBtn, async () => {
     const res = await api(`/properties/${id}/ai/stage`, {
         method: 'POST', body: { image, style: stageStyle.value, room }
     });
-    stageOut.replaceChildren(beforeAfter(image, `/media/${id}/${res.file}`));
+    stageOut.replaceChildren(beforeAfter(image, res.url));
     toast('Staging listo. Movés el slider para comparar.');
 });
 

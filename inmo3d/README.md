@@ -103,6 +103,33 @@ Atajos: `espacio` cambia de modo, `m` mide, `1-9` salta de parada, `Esc` cancela
 
 ---
 
+## Deploy en Vercel
+
+Funciona sin build: `public/` es estático y toda la API es una sola función (`api/[...path].js`).
+
+1. **Importá el repo** en Vercel y poné **Root Directory: `inmo3d`**.
+2. **Storage → Create → Blob**, y conectá el store al proyecto. Eso inyecta `BLOB_READ_WRITE_TOKEN`
+   y la app pasa sola de la carpeta local a Vercel Blob (el filesystem de Vercel es de sólo lectura
+   y efímero, así que sin esto no hay dónde guardar nada; la app te lo avisa en vez de fallar raro).
+3. **Environment Variables**: `ANTHROPIC_API_KEY`, y `GEMINI_API_KEY` (o `OPENAI_API_KEY`) con
+   `INMO3D_IMAGE_PROVIDER` si querés home staging. Deploy.
+
+Qué cambia respecto de correrlo local:
+
+| | Local | Vercel |
+|---|---|---|
+| Archivos | `inmo3d/data/` | Vercel Blob |
+| Fotos | se achican a 1800 px y suben | igual, pero van directo del navegador al Blob |
+| Splat | subida directa | directo al Blob (esquiva el límite de 4,5 MB por request), o pegás una URL pública |
+| Motor | build local del fork | CDN de PlayCanvas (redirect de `vercel.json`) |
+| **Reconstruir desde fotos** | ✅ | ❌ necesita COLMAP y GPU |
+
+Esa última fila es la importante: **en Vercel no se reconstruye**. El flujo es entrenar el splat en
+tu máquina o en Docker (`pipeline/README.md`), subir el `.sog` y usar el deploy para el tour, la IA y
+compartir. El botón de reconstruir aparece deshabilitado con el aviso correspondiente.
+
+---
+
 ## Configuración
 
 ```bash
@@ -130,18 +157,22 @@ otro servicio.
 
 ```
 inmo3d/
-├── server/          Node puro, cero dependencias de runtime
-│   ├── index.mjs      HTTP + API + estáticos + proxy del motor
+├── server/
+│   ├── app.mjs        la API (la misma en local y en Vercel)
+│   ├── index.mjs      servidor local: estáticos + media + motor + API
+│   ├── storage.mjs    dos drivers con la misma interfaz: carpeta local o Vercel Blob
 │   ├── store.mjs      una propiedad = una carpeta con su JSON (sin base de datos)
 │   ├── pipeline.mjs   lanza la reconstrucción y sigue su progreso
 │   └── ai.mjs         Claude (texto y visión) + proveedor de imagen enchufable
-├── web/
+├── public/
 │   ├── index.html     panel: ficha, fotos, reconstrucción, IA, compartir
 │   ├── tour.html      visor
 │   └── src/
 │       ├── viewer.mjs   el motor: splat, cámaras, picking, captura de frame
 │       ├── tour-ui.mjs  paradas, hotspots, medición, staging, chat, minimapa
 │       └── panel.mjs    el panel
+├── api/
+│   └── [...path].js   la misma API, como función de Vercel
 ├── pipeline/        reconstruct.sh + Dockerfile (COLMAP + GLOMAP + OpenSplat)
 └── tools/
     └── demo-splat.mjs   casa sintética para probar sin GPU
@@ -149,11 +180,12 @@ inmo3d/
 
 Decisiones que vale la pena conocer:
 
-- **El servidor no tiene dependencias.** Las fotos se suben como cuerpo crudo del POST, así que no hace
-  falta parser de multipart. El SDK de Anthropic se importa de forma perezosa: sin API key, el resto
-  del producto anda igual.
+- **Una sola API, dos runtimes.** `server/app.mjs` es un handler `(req, res)` común: el servidor local
+  lo monta en `/api` y Vercel lo expone como función. No hay dos versiones que se desincronicen.
 - **Los datos son archivos.** Copiás `data/<propiedad>/` y te llevaste todo: fotos, splat, tour,
-  medidas y lo que generó la IA. Nada queda atrapado en una base.
+  medidas y lo que generó la IA. En Vercel es la misma estructura de claves dentro del Blob.
+- **Sin dependencias de runtime para lo esencial.** El SDK de Anthropic y el de Blob se importan de
+  forma perezosa: sin API key y sin Blob, el visor y el servidor local andan igual.
 - **El motor sale de este repo.** `/engine/build/playcanvas.mjs` sirve el build local del fork; si no
   está compilado, redirige al CDN. Cualquier cambio que le hagas al motor se ve acá.
 - **Caminar sin física.** No hay Ammo ni malla de colisión: el piso se fija con un click y el
@@ -172,6 +204,8 @@ PATCH  /api/properties/:id                    merge por sección (tour, hotspots
 DELETE /api/properties/:id
 POST   /api/properties/:id/photos?name=x.jpg  subida (cuerpo crudo)
 POST   /api/properties/:id/splat?name=x.sog   subir un splat ya entrenado
+POST   /api/properties/:id/attach             registrar algo ya subido  { kind, url, file, bytes }
+POST   /api/blob/upload                       token para subir directo a Vercel Blob
 POST   /api/properties/:id/reconstruct        arranca el pipeline  { sfm, trainer, steps }
 GET    /api/properties/:id/job                estado + log
 POST   /api/properties/:id/ai/{audit|rooms|listing|ask|stage}
@@ -196,4 +230,5 @@ Para que nadie se lleve una sorpresa:
 - No limpia sola los artefactos flotantes del escaneo: para eso, por ahora, SuperSplat.
 - El staging genera una imagen, no muebles 3D dentro de la escena.
 - Un solo usuario, sin login: pensado para correr en la máquina de la inmobiliaria o detrás de un proxy.
+  Si lo desplegás público, cualquiera con el link puede crear y borrar propiedades.
 - El pipeline necesita GPU. Sin GPU, el camino es entrenar afuera y subir el `.ply`/`.sog`.

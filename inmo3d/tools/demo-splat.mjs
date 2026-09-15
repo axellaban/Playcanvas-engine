@@ -3,7 +3,9 @@
 // y sin internet: `npm run demo`.
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { propDir, getProperty, createProperty, saveProperty } from '../server/store.mjs';
+import { DATA_DIR, getProperty, createProperty, saveProperty } from '../server/store.mjs';
+
+const propDir = id => path.join(DATA_DIR, id);
 
 const SH_C0 = 0.28209479177387814;
 const logit = a => Math.log(a / (1 - a));
@@ -162,7 +164,8 @@ await fs.writeFile(path.join(propDir(id), 'splat', 'model.ply'), Buffer.concat([
 
 prop.scene = {
     ...prop.scene,
-    splat: 'splat/model.ply',
+    splat: `${id}/splat/model.ply`,
+    splatUrl: `/media/${id}/splat/model.ply`,
     floorY: 0.02,
     eyeHeight: 1.62,
     metersPerUnit: 1,

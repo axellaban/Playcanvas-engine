@@ -2,8 +2,8 @@
 //  - Texto y visión: Claude (SDK oficial @anthropic-ai/sdk).
 //  - Imagen (home staging virtual): proveedor enchufable (Gemini u OpenAI).
 // Todo es opcional: si no hay API keys, el resto de la app sigue funcionando.
-import fs from 'node:fs/promises';
 import path from 'node:path';
+import { getMedia } from './store.mjs';
 
 const TEXT_MODEL = process.env.INMO3D_TEXT_MODEL || 'claude-opus-5';
 const EFFORT = process.env.INMO3D_EFFORT || 'medium';
@@ -58,16 +58,15 @@ function sample(list, n = MAX_PHOTOS) {
     return Array.from({ length: n }, (_, i) => list[Math.floor(i * step)]);
 }
 
-async function imageBlocks(dir, files) {
+async function imageBlocks(photos) {
     const blocks = [];
-    for (const file of sample(files)) {
-        const ext = path.extname(file).toLowerCase();
-        const media_type = MIME[ext];
+    for (const photo of sample(photos)) {
+        const media_type = MIME[path.extname(photo.file).toLowerCase()];
         if (!media_type) continue;
-        const buf = await fs.readFile(path.join(dir, file)).catch(() => null);
-        // El límite de la API es ~5 MB por imagen: las más pesadas se saltean con aviso.
+        const buf = await getMedia(photo.url).catch(() => null);
+        // El límite de la API es ~5 MB por imagen: las más pesadas se saltean.
         if (!buf || buf.length > 4.5 * 1024 * 1024) continue;
-        blocks.push({ type: 'text', text: `Foto: ${file}` });
+        blocks.push({ type: 'text', text: `Foto: ${photo.file}` });
         blocks.push({ type: 'image', source: { type: 'base64', media_type, data: buf.toString('base64') } });
     }
     return blocks;
@@ -130,10 +129,10 @@ exposición bloqueada, ISO bajo, sin HDR ni paneo de video, cobertura en órbita
 ambiente más una pasada de detalle, evitar espejos y ventanas quemadas, no mover objetos entre tomas.
 ${JSON_ONLY}`;
 
-export async function auditPhotos(prop, dir) {
-    const files = prop.photos.map(p => p.file);
+export async function auditPhotos(prop) {
+    const files = prop.photos;
     if (!files.length) throw new Error('La propiedad todavía no tiene fotos.');
-    const blocks = await imageBlocks(dir, files);
+    const blocks = await imageBlocks(files);
     const text = await ask(AUDIT_SYS, [
         { type: 'text',
             text: `Ficha de la propiedad:\n${ficha(prop)}\n\nTotal de fotos subidas: ${files.length}${
@@ -161,8 +160,8 @@ orientación, antigüedad ni servicios. Nada de clichés vacíos ("excelente opo
 Frases cortas, concretas, sensoriales. Escribís en el idioma indicado, registro rioplatense si es español.
 ${JSON_ONLY}`;
 
-export async function writeListing(prop, dir, extra = '') {
-    const blocks = await imageBlocks(dir, prop.photos.map(p => p.file));
+export async function writeListing(prop, extra = '') {
+    const blocks = await imageBlocks(prop.photos);
     const text = await ask(LISTING_SYS, [
         { type: 'text', text: `Ficha:\n${ficha(prop)}\n\nIdioma: ${prop.meta.language || 'es'}\n${extra}` },
         ...blocks,
@@ -189,8 +188,8 @@ const ROOMS_SYS = `Sos un arquitecto que arma recorridos guiados de propiedades.
 identificás los ambientes, los ordenás en el recorrido más vendedor (de lo más impactante a lo
 funcional) y escribís el texto que se lee en cada parada del tour 3D. ${JSON_ONLY}`;
 
-export async function detectRooms(prop, dir) {
-    const blocks = await imageBlocks(dir, prop.photos.map(p => p.file));
+export async function detectRooms(prop) {
+    const blocks = await imageBlocks(prop.photos);
     const text = await ask(ROOMS_SYS, [
         { type: 'text', text: `Ficha:\n${ficha(prop)}` },
         ...blocks,

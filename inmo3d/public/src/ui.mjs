@@ -75,3 +75,66 @@ export const copy = async (text, what = 'Texto') => {
     await navigator.clipboard.writeText(text);
     toast(`${what} copiado al portapapeles.`);
 };
+
+let _cfg;
+/** La configuración del servidor (qué IA hay, qué almacenamiento, si puede reconstruir). */
+export async function config() {
+    _cfg ??= await api('/config');
+    return _cfg;
+}
+
+const safeName = name => name.normalize('NFD').replace(/\p{Diacritic}/gu, '')
+.toLowerCase().replace(/[^a-z0-9.]+/g, '-').replace(/^-+|-+$/g, '');
+
+/**
+ * Achica la foto antes de subirla. No es sólo por el peso: al modelo de visión le llegan
+ * mejor 1800 px que 12 MP, y cuesta bastante menos.
+ */
+export async function downscale(file, max = 1800, quality = 0.84) {
+    if (!file.type.startsWith('image/')) return file;
+    const bmp = await createImageBitmap(file).catch(() => null);
+    if (!bmp) return file;
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    if (k === 1 && file.size < 2.5e6) return file;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bmp.width * k);
+    canvas.height = Math.round(bmp.height * k);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    bmp.close?.();
+    const blob = await new Promise((resolve) => {
+        canvas.toBlob(resolve, 'image/jpeg', quality);
+    });
+    if (!blob) return file;
+    return new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.jpg`, { type: 'image/jpeg' });
+}
+
+/**
+ * Sube un archivo. Con Vercel Blob va directo del navegador al storage (así no choca
+ * contra el límite de 4,5 MB por request de las funciones); local pasa por el servidor.
+ */
+export async function putFile(id, kind, file, name = file.name) {
+    const cfg = await config();
+    const clean = safeName(name);
+    if (cfg.storage === 'blob') {
+        let upload;
+        try {
+            ({ upload } = await import('@vercel/blob/client'));
+        } catch {
+            throw new Error('No pude cargar el cliente de Vercel Blob. Si es un splat, pegá su URL pública.');
+        }
+        const folder = kind === 'splat' ? 'splat' : 'photos';
+        const blob = await upload(`${id}/${folder}/${clean}`, file, {
+            access: 'public',
+            handleUploadUrl: '/api/blob/upload',
+            contentType: file.type || 'application/octet-stream'
+        });
+        await api(`/properties/${id}/attach`, {
+            method: 'POST', body: { kind, url: blob.url, file: clean, bytes: file.size }
+        });
+        return { file: clean, url: blob.url, bytes: file.size };
+    }
+    const route = kind === 'splat' ? 'splat' : 'photos';
+    return api(`/properties/${id}/${route}?name=${encodeURIComponent(clean)}`, {
+        method: 'POST', raw: file, headers: { 'content-type': file.type || 'application/octet-stream' }
+    });
+}

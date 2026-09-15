@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/engine/build/playcanvas.mjs",
+      "destination": "https://cdn.jsdelivr.net/npm/playcanvas@2.23.0/build/playcanvas.mjs",
+      "permanent": false
+    },
+    {
+      "source": "/engine/scripts/:path*",
+      "destination": "https://cdn.jsdelivr.net/npm/playcanvas@2.23.0/scripts/:path*",
+      "permanent": false
+    }
+  ],
+  "functions": {
+    "api/[...path].js": { "maxDuration": 120 }
+  }
+}

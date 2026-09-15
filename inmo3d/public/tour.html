@@ -19,7 +19,13 @@
   </div>
 </div>
 <script type="importmap">
-{ "imports": { "playcanvas": "/engine/build/playcanvas.mjs", "playcanvas/": "/engine/" } }
+{
+  "imports": {
+    "playcanvas": "/engine/build/playcanvas.mjs",
+    "playcanvas/": "/engine/",
+    "@vercel/blob/client": "https://esm.sh/@vercel/blob@1/client"
+  }
+}
 </script>
 <script type="module" src="/src/tour-ui.mjs"></script>
 </body>

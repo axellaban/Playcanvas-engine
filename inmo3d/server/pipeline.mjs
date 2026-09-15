@@ -6,7 +6,9 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { ROOT, propDir, getProperty, saveProperty } from './store.mjs';
+import { ROOT, DATA_DIR, isBlob, onVercel, getProperty, saveProperty } from './store.mjs';
+
+const propDir = id => path.join(DATA_DIR, id);
 
 const running = new Map();   // id de propiedad -> proceso
 
@@ -16,7 +18,16 @@ export function isRunning(id) {
     return running.has(id);
 }
 
+/** La reconstrucción necesita disco y binarios (COLMAP, entrenador): no corre en serverless. */
+export function available() {
+    return !onVercel && !isBlob;
+}
+
 export async function start(id, opts = {}) {
+    if (!available()) {
+        throw new Error('La reconstrucción no corre en el deploy serverless: necesita COLMAP y una GPU. ' +
+            'Corré el pipeline en tu máquina o en Docker (ver pipeline/README.md) y subí el .sog resultante.');
+    }
     if (running.has(id)) throw new Error('Ya hay una reconstrucción en curso para esta propiedad.');
     const prop = await getProperty(id);
     if (!prop) throw new Error('Propiedad inexistente.');
@@ -83,7 +94,10 @@ export async function start(id, opts = {}) {
             finishedAt: new Date().toISOString(),
             error: ok ? null : `El pipeline terminó con código ${code}. Mirá pipeline.log para el detalle.`
         };
-        if (ok) p.scene.splat = 'splat/model.sog';
+        if (ok) {
+            p.scene.splat = `${id}/splat/model.sog`;
+            p.scene.splatUrl = `/media/${id}/splat/model.sog`;
+        }
         await saveProperty(p);
     });
 
@@ -98,6 +112,7 @@ export function stop(id) {
 }
 
 export async function tail(id, bytes = 8000) {
+    if (!available()) return '';
     const file = path.join(propDir(id), 'pipeline.log');
     const buf = await fs.readFile(file).catch(() => Buffer.alloc(0));
     return buf.subarray(Math.max(0, buf.length - bytes)).toString();
