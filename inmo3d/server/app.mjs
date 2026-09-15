@@ -36,6 +36,10 @@ export async function readRaw(req, limit = 8 * 1024 * 1024) {
 /** Emite el token para que el navegador suba directo al Blob, sin pasar por la función. */
 async function blobUploadToken(req, res) {
     if (!storage.isBlob) return fail(res, 'Este servidor no usa Vercel Blob.', 409);
+    if (!storage.canClientUpload) {
+        return fail(res, 'La subida directa al Blob necesita BLOB_READ_WRITE_TOKEN. ' +
+            'Agregá el token en la conexión del store, o enlazá el splat por URL.', 409);
+    }
     const { handleUpload } = await import('@vercel/blob/client');
     const body = await readJson(req);
     const result = await handleUpload({
@@ -63,7 +67,9 @@ export async function api(req, res, url) {
             storage: storage.driver,
             vercel: storage.onVercel,
             canReconstruct: pipe.available(),
-            writable: !(storage.onVercel && !storage.isBlob)
+            writable: !(storage.onVercel && !storage.isBlob),
+            clientUpload: storage.canClientUpload,
+            blobVars: storage.blobVars()
         });
     }
 

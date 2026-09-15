@@ -274,6 +274,9 @@ function sectionScene(prop) {
             h('button.btn', { onclick: () => up.click() }, '⬆ Subir splat ya entrenado'), up,
             prop.scene.splatUrl && h('a.btn.ghost', { href: prop.scene.splatUrl, download: true, target: '_blank' },
                 `Descargar ${prop.scene.splatUrl.slice(prop.scene.splatUrl.lastIndexOf('.')).split('?')[0]}`)),
+        CFG.storage === 'blob' && !CFG.clientUpload && h('p.chip.warn', {},
+            'Sin BLOB_READ_WRITE_TOKEN el archivo pasa por la función: hasta 4,5 MB. ' +
+            'Para un splat más grande, enlazalo por URL o agregá el token al store.'),
         h('label', {}, 'o enlazar un splat que ya esté publicado en otra URL'),
         h('div', { style: { display: 'flex', gap: '6px' } }, urlInput, attach),
         h('div', { style: { height: '12px' } }),
@@ -423,6 +426,10 @@ function setupCard() {
             h('li', {}, h('b', {}, 'Connect Project'), ' apuntando a este proyecto.'),
             h('li', {}, 'Volvé a ', h('b', {}, 'Deployments → … → Redeploy'),
                 ' para que el deploy tome la variable.')),
+        h('label', {}, 'Variables del Blob que ve este deploy'),
+        h('div.chips', {}, CFG.blobVars?.length ?
+            CFG.blobVars.map(v => h('span.chip.ok', {}, v)) :
+            h('span.chip.warn', {}, 'ninguna')),
         h('p.dim', { style: { fontSize: '.86rem' } },
             'Corriendo en tu máquina esto no hace falta: los archivos van a inmo3d/data/.'));
 }
@@ -434,6 +441,12 @@ async function route() {
         const m = location.hash.match(/^#\/p\/(.+)$/);
         await (m ? renderDetail(m[1]) : renderList());
     } catch (e) {
+        // Si el problema es el almacenamiento, mostramos los pasos además del error.
+        if (/blob/i.test(e.message)) {
+            view.replaceChildren(h('div.card.warn-top', { style: { maxWidth: '640px', margin: '40px auto 0' } },
+                h('h2', {}, 'No pude leer las propiedades'), h('p', {}, e.message)), setupCard());
+            return;
+        }
         view.replaceChildren(h('div.card', {}, h('h2', {}, 'Ups'), h('p', {}, e.message),
             h('button.btn', { onclick: () => go('#/') }, 'Volver')));
     }

@@ -112,10 +112,11 @@ Funciona sin build: `public/` es estático y toda la API es una sola función (`
    - **Access: `Public`** — el visor pide el splat y las fotos por URL desde el navegador. Con un
      store privado cada archivo pediría token y no se vería nada. Contrapartida: cualquiera con la
      URL exacta accede a ese archivo, igual que cuando compartís el link de un tour.
-   - **Tildá `Add a read-write token env var`** — ese checkbox es el que crea
-     `BLOB_READ_WRITE_TOKEN`, que es lo que la app busca para cambiar de disco local a Blob. Si no
-     lo tildás sólo se crean `BLOB_STORE_ID` y `BLOB_WEBHOOK_PUBLIC_KEY`, y la app va a seguir
-     diciendo que no tiene almacenamiento.
+   - **Credencial**: el SDK se autentica con `BLOB_READ_WRITE_TOKEN`, o con `BLOB_STORE_ID` más el
+     `VERCEL_OIDC_TOKEN` que Vercel inyecta si el proyecto tiene OIDC habilitado. Lo seguro es
+     tener el token: tildá `Add a read-write token env var` al conectar el store, o copialo del
+     store y pegalo como variable del proyecto. **Sólo con el token funciona la subida directa
+     navegador → Blob**, que es la que aguanta splats de más de 4,5 MB.
 
    Después: **Connect Project** y un **Redeploy** para que el deploy tome la variable.
 3. **Environment Variables**: `ANTHROPIC_API_KEY`, y `GEMINI_API_KEY` (o `OPENAI_API_KEY`) con

@@ -115,7 +115,9 @@ export async function downscale(file, max = 1800, quality = 0.84) {
 export async function putFile(id, kind, file, name = file.name) {
     const cfg = await config();
     const clean = safeName(name);
-    if (cfg.storage === 'blob') {
+    // Sin token read-write no se puede subir directo: el archivo pasa por la función,
+    // que aguanta hasta 4,5 MB. Para un splat grande queda la opción de enlazarlo por URL.
+    if (cfg.storage === 'blob' && cfg.clientUpload) {
         let upload;
         try {
             ({ upload } = await import('@vercel/blob/client'));
