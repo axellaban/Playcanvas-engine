@@ -108,9 +108,16 @@ Atajos: `espacio` cambia de modo, `m` mide, `1-9` salta de parada, `Esc` cancela
 Funciona sin build: `public/` es estático y toda la API es una sola función (`api/[...path].js`).
 
 1. **Importá el repo** en Vercel y poné **Root Directory: `inmo3d`**.
-2. **Storage → Create → Blob**, y conectá el store al proyecto. Eso inyecta `BLOB_READ_WRITE_TOKEN`
-   y la app pasa sola de la carpeta local a Vercel Blob (el filesystem de Vercel es de sólo lectura
-   y efímero, así que sin esto no hay dónde guardar nada; la app te lo avisa en vez de fallar raro).
+2. **Storage → Create Database → Blob**, con dos detalles que hay que acertar:
+   - **Access: `Public`** — el visor pide el splat y las fotos por URL desde el navegador. Con un
+     store privado cada archivo pediría token y no se vería nada. Contrapartida: cualquiera con la
+     URL exacta accede a ese archivo, igual que cuando compartís el link de un tour.
+   - **Tildá `Add a read-write token env var`** — ese checkbox es el que crea
+     `BLOB_READ_WRITE_TOKEN`, que es lo que la app busca para cambiar de disco local a Blob. Si no
+     lo tildás sólo se crean `BLOB_STORE_ID` y `BLOB_WEBHOOK_PUBLIC_KEY`, y la app va a seguir
+     diciendo que no tiene almacenamiento.
+
+   Después: **Connect Project** y un **Redeploy** para que el deploy tome la variable.
 3. **Environment Variables**: `ANTHROPIC_API_KEY`, y `GEMINI_API_KEY` (o `OPENAI_API_KEY`) con
    `INMO3D_IMAGE_PROVIDER` si querés home staging. Deploy.
 

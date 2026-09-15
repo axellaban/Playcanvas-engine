@@ -408,8 +408,28 @@ const go = (hash) => {
     location.hash = hash;
 };
 
+function setupCard() {
+    return h('div.card', { style: { maxWidth: '640px', margin: '40px auto' } },
+        h('h2', {}, '📦 Falta el almacenamiento'),
+        h('p', {}, 'El deploy está andando y la IA quedó configurada, pero Vercel no tiene dónde ' +
+            'guardar las propiedades: su filesystem es de sólo lectura. Se arregla en dos minutos:'),
+        h('ol', { style: { lineHeight: '1.9', paddingLeft: '20px' } },
+            h('li', {}, 'En el proyecto de Vercel: ', h('b', {}, 'Storage → Create Database → Blob'), '.'),
+            h('li', {}, 'Access: ', h('b', {}, 'Public'), '. El visor pide el splat y las fotos por URL ' +
+                'desde el navegador; un store privado pediría token para cada archivo.'),
+            h('li', {}, 'Tildá ', h('b', {}, 'Add a read-write token env var'),
+                ': ese checkbox es el que crea ', h('code.mono', {}, 'BLOB_READ_WRITE_TOKEN'),
+                ' (sin él sólo se crean el store id y la public key).'),
+            h('li', {}, h('b', {}, 'Connect Project'), ' apuntando a este proyecto.'),
+            h('li', {}, 'Volvé a ', h('b', {}, 'Deployments → … → Redeploy'),
+                ' para que el deploy tome la variable.')),
+        h('p.dim', { style: { fontSize: '.86rem' } },
+            'Corriendo en tu máquina esto no hace falta: los archivos van a inmo3d/data/.'));
+}
+
 async function route() {
     view.replaceChildren(h('div.card', {}, h('span.spin'), ' cargando…'));
+    if (!CFG.writable) return view.replaceChildren(setupCard());
     try {
         const m = location.hash.match(/^#\/p\/(.+)$/);
         await (m ? renderDetail(m[1]) : renderList());
@@ -423,9 +443,6 @@ window.addEventListener('hashchange', route);
 $('#new-prop').onclick = newProperty;
 
 CFG = await config();
-if (!CFG.writable) {
-    toast('Este deploy no tiene almacenamiento: creá un Blob Store en Vercel y volvé a desplegar.', true, 15000);
-}
 $('#ai-state').textContent = CFG.ai.text ?
     `IA: ${CFG.ai.textModel}${CFG.ai.image ? ` + ${CFG.ai.imageProvider}` : ''}` : 'IA sin configurar';
 $('#ai-state').className = CFG.ai.text ? 'chip ok' : 'chip warn';

@@ -113,5 +113,8 @@ export async function remove(prefix) {
 }
 
 export async function ensure() {
+    // En serverless sin Blob no hay dónde escribir: mejor el mensaje con la solución
+    // que un ENOENT del filesystem de sólo lectura.
+    assertWritable();
     if (!isBlob) await fs.mkdir(DATA_DIR, { recursive: true });
 }

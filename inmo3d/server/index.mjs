@@ -90,7 +90,7 @@ const server = http.createServer(async (req, res) => {
     }
 });
 
-await ensureData();
+await ensureData().catch(e => console.warn(`  aviso: ${e.message}`));
 const port = Number(process.env.PORT || 3113);
 server.listen(port, () => {
     const c = ai.config();
