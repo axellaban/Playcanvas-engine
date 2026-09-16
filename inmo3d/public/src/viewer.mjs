@@ -15,7 +15,36 @@ const easeInOut = t => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 export const v3 = a => new Vec3(a[0], a[1], a[2]);
 export const arr = v => [v.x, v.y, v.z];
 
-export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2' }) {
+/**
+ * Descarga el splat mostrando progreso real. El motor elige el parser por la extensión
+ * del `filename`, no por la URL, así que podemos servirle los bytes ya descargados y
+ * seguir eligiendo bien el formato. Si la descarga manual falla (CORS, por ejemplo),
+ * se devuelve la URL original y que la cargue el motor por su cuenta.
+ */
+async function download(url, onProgress) {
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const total = Number(res.headers.get('content-length')) || 0;
+        if (!res.body) return { url, total };
+        const reader = res.body.getReader();
+        const chunks = [];
+        let received = 0;
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            received += value.length;
+            onProgress?.(received, total);
+        }
+        const blob = new Blob(chunks);
+        return { url: URL.createObjectURL(blob), total: received, revoke: true };
+    } catch {
+        return { url, total: 0 };
+    }
+}
+
+export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2', onProgress }) {
     const device = await createGraphicsDevice(canvas, {
         deviceTypes: gpu === 'webgpu' ? ['webgpu', 'webgl2'] : ['webgl2'],
         // Los splats no se benefician del antialiasing y cuesta caro.
@@ -54,13 +83,20 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
     app.scene.exposure = scene.exposure ?? 1;
 
     // ------------------------------------------------------------------ splat
-    const asset = new Asset('splat', 'gsplat', { url: splatUrl });
+    const file = await download(splatUrl, onProgress);
+    // El nombre conserva la extensión real: es lo que usa el motor para elegir el parser.
+    const filename = splatUrl.split('?')[0].split('/').pop() || 'model.sog';
+    const asset = new Asset('splat', 'gsplat', { url: file.url, filename });
     app.assets.add(asset);
-    await new Promise((resolve, reject) => {
-        asset.once('load', resolve);
-        asset.once('error', e => reject(new Error(`No pude cargar el splat: ${e}`)));
-        app.assets.load(asset);
-    });
+    try {
+        await new Promise((resolve, reject) => {
+            asset.once('load', resolve);
+            asset.once('error', e => reject(new Error(`No pude abrir la escena 3D: ${e}`)));
+            app.assets.load(asset);
+        });
+    } finally {
+        if (file.revoke) URL.revokeObjectURL(file.url);
+    }
 
     const splat = new Entity('splat');
     splat.addComponent('gsplat', { asset, castShadows: false });
@@ -117,18 +153,30 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
     }
 
     // ------------------------------------------------------------------ picking
+    const nextFrame = () => new Promise((resolve) => {
+        app.once('postrender', resolve);
+    });
+
     /**
-     * Devuelve el punto 3D bajo el cursor, o null si ahí no hay nada.
-     * @param clientX
-     * @param clientY
+     * Devuelve el punto 3D bajo el cursor, o null si ahí no hay superficie.
+     *
+     * El Picker dibuja el buffer de ids y después lo lee: si el cuadro todavía no se
+     * dibujó, la lectura vuelve vacía aunque ahí sí haya superficie. Pasaba una de cada
+     * varias veces y hacía perder el primer punto de una medición, así que reintenta.
      */
-    async function pickWorld(clientX, clientY) {
+    async function pickWorld(clientX, clientY, intentos = 3) {
         const rect = canvas.getBoundingClientRect();
         const s = 0.25;   // a cuarto de resolución: alcanza y sobra, y es 16x más barato
-        picker.resize(Math.max(1, rect.width * s), Math.max(1, rect.height * s));
-        picker.prepare(camera.camera, app.scene, [app.scene.layers.getLayerByName('World')]);
-        const p = await picker.getWorldPointAsync((clientX - rect.left) * s, (clientY - rect.top) * s);
-        return p ?? null;
+        const x = (clientX - rect.left) * s;
+        const y = (clientY - rect.top) * s;
+        for (let i = 0; i < intentos; i++) {
+            if (i) await nextFrame();
+            picker.resize(Math.max(1, rect.width * s), Math.max(1, rect.height * s));
+            picker.prepare(camera.camera, app.scene, [app.scene.layers.getLayerByName('World')]);
+            const p = await picker.getWorldPointAsync(x, y);
+            if (p) return p;
+        }
+        return null;
     }
 
     function worldToScreen(p) {

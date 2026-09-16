@@ -99,7 +99,11 @@ export async function api(req, res, url) {
     if (method !== 'GET' && method !== 'HEAD') requireAdmin(req);
 
     if (seg.length === 1) {
-        if (method === 'GET') return json(res, await store.listProperties());
+        if (method === 'GET') {
+            // Cada propiedad es pública por su link; la cartera completa no.
+            requireAdmin(req);
+            return json(res, await store.listProperties());
+        }
         if (method === 'POST') return json(res, await store.createProperty((await readJson(req)).meta || {}), 201);
         return json(res, { error: 'Método no permitido.' }, 405);
     }

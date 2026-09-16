@@ -248,8 +248,9 @@ Para que nadie se lleve una sorpresa:
 - No extrae el plano en planta automáticamente (el minimapa es esquemático, no un plano acotado).
 - No limpia sola los artefactos flotantes del escaneo: para eso, por ahora, SuperSplat.
 - El staging genera una imagen, no muebles 3D dentro de la escena.
-- Una sola clave administrativa; todavía no hay cuentas por inmobiliaria ni roles. Las propiedades
-  y sus archivos siguen siendo públicos por diseño; no guardes documentos o notas confidenciales.
+- Una sola clave administrativa; todavía no hay cuentas por inmobiliaria ni roles. El listado de
+  propiedades exige sesión, pero **cada propiedad y sus archivos son públicos por su link** (es lo que
+  hace que se pueda compartir un tour): no guardes documentos ni notas confidenciales.
 - El pipeline necesita GPU. Sin GPU, el camino es entrenar afuera y subir el `.ply`/`.sog`.
 
 ## Verificación

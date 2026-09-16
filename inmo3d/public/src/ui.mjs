@@ -40,7 +40,7 @@ export async function api(path, { method = 'GET', body, raw, headers = {} } = {}
     } catch {
         throw new Error(`La API respondió HTTP ${res.status} sin JSON en /api${path}. Revisá el despliegue del servidor.`);
     }
-    if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(data.error || `Error ${res.status}`), { status: res.status });
     return data;
 }
 
@@ -96,15 +96,35 @@ const safeName = name => name.normalize('NFD').replace(/\p{Diacritic}/gu, '')
  * Achica la foto antes de subirla. No es sólo por el peso: al modelo de visión le llegan
  * mejor 1800 px que 12 MP, y cuesta bastante menos.
  */
+async function decode(file) {
+    const bmp = await createImageBitmap(file).catch(() => null);
+    if (bmp) return bmp;
+    // Safari resuelve por <img> algunos formatos que createImageBitmap rechaza.
+    const url = URL.createObjectURL(file);
+    try {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        return img;
+    } catch {
+        return null;
+    } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+}
+
 export async function downscale(file, max = 1800, quality = 0.84) {
     if (!file.type.startsWith('image/')) return file;
-    const bmp = await createImageBitmap(file).catch(() => null);
+    const bmp = await decode(file);
     if (!bmp) return file;
-    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
-    if (k === 1 && file.size < 2.5e6) return file;
+    const w = bmp.width || bmp.naturalWidth, hgt = bmp.height || bmp.naturalHeight;
+    const k = Math.min(1, max / Math.max(w, hgt));
+    // Un HEIC chico igual se convierte: el servidor y el modelo sólo entienden jpg/png/webp.
+    const raro = !/^image\/(?:jpeg|png|webp)$/.test(file.type);
+    if (k === 1 && file.size < 2.5e6 && !raro) return file;
     const canvas = document.createElement('canvas');
-    canvas.width = Math.round(bmp.width * k);
-    canvas.height = Math.round(bmp.height * k);
+    canvas.width = Math.round(w * k);
+    canvas.height = Math.round(hgt * k);
     canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
     bmp.close?.();
     const blob = await new Promise((resolve) => {

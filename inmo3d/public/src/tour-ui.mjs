@@ -11,7 +11,10 @@ const canvas = $('#canvas');
 const loader = $('#loader');
 
 const die = (msg) => {
-    $('#loader-text').textContent = msg;
+    const el = $('#loader-text');
+    el.textContent = msg;
+    el.style.whiteSpace = 'pre-line';
+    el.style.maxWidth = '34ch';
     $('#loader .spin')?.remove();
     throw new Error(msg);
 };
@@ -24,17 +27,47 @@ if (!prop.scene.splatUrl) {
 const CFG = await config();
 const minimal = qs.get('ui') === 'min' || !CFG.auth?.authenticated;
 
-$('#loader-text').textContent = 'cargando la casa… (la primera vez tarda un poco)';
+// Una escena pesa decenas de MB: en 4G, un spinner mudo parece que se colgó.
+const mb = bytes => `${(bytes / 1e6).toFixed(1)} MB`;
+const loaderText = $('#loader-text');
+loaderText.textContent = 'descargando la casa…';
+const slow = setTimeout(() => {
+    loaderText.dataset.slow = 'La escena es pesada. Con buena señal tarda unos segundos; en 4G, un poco más.';
+}, 8000);
+
 const viewer = await createViewer({
     canvas,
     splatUrl: prop.scene.splatUrl,
     scene: prop.scene,
-    gpu: qs.get('gpu') || 'webgl2'
-}).catch(e => die(e.message));
+    gpu: qs.get('gpu') || 'webgl2',
+    onProgress: (received, total) => {
+        loaderText.textContent = total ?
+            `descargando la casa… ${Math.round(received / total * 100)}% · ${mb(received)} de ${mb(total)}` :
+            `descargando la casa… ${mb(received)}`;
+        if (loaderText.dataset.slow) loaderText.textContent += `\n${loaderText.dataset.slow}`;
+    }
+}).catch((e) => {
+    clearTimeout(slow);
+    die(`${e.message}\n\nProbá recargar la página. Si vuelve a fallar, avisale a quien publicó el tour.`);
+});
+clearTimeout(slow);
+loaderText.textContent = 'preparando el recorrido…';
 loader.remove();
 
 // Las mediciones de un visitante viven sólo en su navegador.
-const save = patch => (minimal ? Promise.resolve() : api(`/properties/${id}`, { method: 'PATCH', body: patch }));
+/**
+ * Guarda sin bloquear la interfaz: medir y anotar tienen que sentirse instantáneos,
+ * no esperar un viaje al servidor. Si el guardado falla, se avisa y se ofrece reintentar.
+ */
+const save = (patch) => {
+    if (minimal) return Promise.resolve();
+    return api(`/properties/${id}`, { method: 'PATCH', body: patch }).catch((e) => {
+        toast(e.status === 401 ?
+            'Tu sesión venció: lo que marcaste no se guardó. Volvé a entrar desde el panel.' :
+            `No se pudo guardar: ${e.message}`, true, 9000);
+        throw e;
+    });
+};
 const st = { tool: null, pending: [], stop: -1, markers: [], dismissedSheet: false };
 
 const COLORS = { measure: new Color(1, 0.48, 0.27), pending: new Color(1, 0.9, 0.3) };
@@ -65,6 +98,7 @@ canvas.addEventListener('pointerup', async (e) => {
         case 'medir':
         case 'calibrar': {
             st.pending.push(arr(p));
+            if (st.pending.length === 1) toast('Primer punto tomado. Marcá el segundo.', false, 2500);
             if (st.pending.length === 2) {
                 const [a, b] = st.pending;
                 st.pending = [];
@@ -83,9 +117,10 @@ canvas.addEventListener('pointerup', async (e) => {
                     const meters = viewer.distance(a, b);
                     const label = prompt('¿Qué estás midiendo?', 'Medida') || 'Medida';
                     prop.measures.push({ id: `m${Date.now()}`, label, a, b, meters });
-                    await save({ measures: prop.measures });
                     renderMeasures();
+                    renderMarkers();
                     toast(`${label}: ${meters.toFixed(2)} m`);
+                    save({ measures: prop.measures });
                 }
             }
             break;
@@ -94,8 +129,8 @@ canvas.addEventListener('pointerup', async (e) => {
             const title = prompt('Título del hotspot', 'Detalle');
             if (title) {
                 prop.hotspots.push({ id: `hs${Date.now()}`, title, body: prompt('Texto (opcional)', '') || '', pos: arr(p) });
-                await save({ hotspots: prop.hotspots });
                 renderMarkers();
+                save({ hotspots: prop.hotspots });
             }
             setTool(null);
             break;
@@ -187,9 +222,13 @@ viewer.app.on('update', () => {
         if (s.visible) m.el.style.transform = `translate(${s.x}px, ${s.y}px) translate(-50%, -50%)`;
     }
     for (const m of prop.measures) viewer.drawSegment(m.a, m.b, COLORS.measure);
-    if (st.pending.length === 1 && viewer.state.mode) {
-        const a = st.pending[0];
-        viewer.drawSegment(a, [a[0], a[1] + 0.02, a[2]], COLORS.pending);
+    if (st.pending.length === 1) {
+        // Cruz bien visible: hay que saber que el primer punto quedó tomado.
+        const [x, y, z] = st.pending[0];
+        const r = viewer.radius * 0.012;
+        viewer.drawSegment([x - r, y, z], [x + r, y, z], COLORS.pending);
+        viewer.drawSegment([x, y - r, z], [x, y + r, z], COLORS.pending);
+        viewer.drawSegment([x, y, z - r], [x, y, z + r], COLORS.pending);
     }
 });
 
@@ -199,6 +238,11 @@ const stopsEl = h('ul.stops');
 const mini = h('canvas', { id: 'minimap', width: 240, height: 240 });
 
 function renderStops() {
+    if (!prop.tour.length) {
+        return stopsEl.replaceChildren(h('li', { style: { cursor: 'default', color: 'var(--dim)', fontSize: '.8rem' } },
+            minimal ? 'Esta propiedad todavía no tiene paradas guiadas: recorrela libremente.' :
+                'Sin paradas todavía. Creálas desde el panel con “Detectar ambientes” y ubicalas acá con 🎯.'));
+    }
     stopsEl.replaceChildren(...prop.tour.map((wp, i) => h('li', {
         class: i === st.stop ? 'active' : '',
         onclick: () => goStop(i)

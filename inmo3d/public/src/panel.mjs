@@ -13,10 +13,14 @@ async function renderList() {
             h('h1', {}, 'Propiedades'),
             h('small.dim', {}, `${props.length} en el sistema`)),
         props.length ? h('div.grid.props', {}, props.map(card)) :
-            h('div.card', { style: { textAlign: 'center', padding: '48px' } },
-                h('h2', {}, 'Todavía no hay ninguna propiedad'),
-                h('p.dim', {}, 'Creá una, subí entre 80 y 200 fotos de la casa y armá el tour 3D.'),
-                h('button.btn.primary', { onclick: newProperty }, 'Crear la primera'))
+            h('div.card', { style: { textAlign: 'center', padding: '44px 24px' } },
+                h('div', { style: { fontSize: '2.6rem', lineHeight: 1 } }, '🏡'),
+                h('h2', { style: { marginTop: '14px' } }, 'Tu primera propiedad'),
+                h('p.dim', { style: { maxWidth: '46ch', margin: '0 auto 18px' } },
+                    'El camino es: cargás la ficha, sacás entre 80 y 200 fotos de la casa, ' +
+                    'la IA te dice si alcanzan, y sale el tour 3D para compartir por link.'),
+                h('button.btn.primary', { onclick: () => newProperty().catch(e => toast(e.message, true)) },
+                    'Crear la primera'))
     );
 }
 
@@ -486,6 +490,17 @@ function setupCard() {
 async function route() {
     view.replaceChildren(h('div.card', {}, h('span.spin'), ' cargando…'));
     if (!CFG.writable) return view.replaceChildren(setupCard());
+
+    const m0 = location.hash.match(/^#\/p\/(.+)$/);
+    if (CFG.auth?.required && !CFG.auth.authenticated && !m0) {
+        // La cartera completa es privada. Cada tour sigue siendo público por su link.
+        return view.replaceChildren(accessCard(),
+            h('div.card', { style: { marginTop: '16px' } },
+                h('h2', {}, '🔒 Cartera privada'),
+                h('p.dim', {}, 'El listado de propiedades sólo se ve con sesión iniciada. ' +
+                    'Los tours que compartas siguen abriéndose con su link, sin clave.')));
+    }
+
     try {
         const m = location.hash.match(/^#\/p\/(.+)$/);
         await (m ? renderDetail(m[1]) : renderList());
@@ -497,6 +512,10 @@ async function route() {
         }
         if (CFG.auth?.required && !CFG.auth.authenticated) view.prepend(accessCard());
     } catch (e) {
+        if (e.status === 401) {
+            toast('Tu sesión venció. Ingresá de nuevo.', true);
+            return boot();
+        }
         // Si el problema es el almacenamiento, mostramos los pasos además del error.
         if (/blob/i.test(e.message)) {
             view.replaceChildren(h('div.card.warn-top', { style: { maxWidth: '640px', margin: '40px auto 0' } },
