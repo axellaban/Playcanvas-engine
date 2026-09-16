@@ -1,18 +1,23 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "outputDirectory": "public",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index?__path=:path*" }
+  ],
   "redirects": [
     {
       "source": "/engine/build/playcanvas.mjs",
-      "destination": "https://cdn.jsdelivr.net/npm/playcanvas@2.23.0/build/playcanvas.mjs",
+      "destination": "https://cdn.jsdelivr.net/npm/playcanvas@2.23.0-beta.9/build/playcanvas.mjs",
       "permanent": false
     },
     {
       "source": "/engine/scripts/:path*",
-      "destination": "https://cdn.jsdelivr.net/npm/playcanvas@2.23.0/scripts/:path*",
+      "destination": "https://cdn.jsdelivr.net/npm/playcanvas@2.23.0-beta.9/scripts/:path*",
       "permanent": false
     }
   ],
   "functions": {
-    "api/[...path].js": { "maxDuration": 120 }
+    "api/index.js": { "maxDuration": 120 }
   }
 }

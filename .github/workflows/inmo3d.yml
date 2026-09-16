@@ -1,0 +1,22 @@
+name: Inmo3D
+on:
+  push:
+    paths: ['inmo3d/**', '.github/workflows/inmo3d.yml']
+  pull_request:
+    paths: ['inmo3d/**', '.github/workflows/inmo3d.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: inmo3d/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: inmo3d
+      - run: npm test
+        working-directory: inmo3d

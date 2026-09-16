@@ -35,6 +35,7 @@ function card(p) {
 }
 
 async function newProperty() {
+    if (!CFG.auth?.authenticated) return toast('Iniciá sesión para crear una propiedad.', true);
     const title = prompt('Nombre de la propiedad', 'Casa en Palermo');
     if (!title) return;
     const p = await api('/properties', { method: 'POST', body: { meta: { title } } });
@@ -440,6 +441,13 @@ async function route() {
     try {
         const m = location.hash.match(/^#\/p\/(.+)$/);
         await (m ? renderDetail(m[1]) : renderList());
+        if (!CFG.auth?.authenticated) {
+            for (const control of view.querySelectorAll('input, select, textarea, button')) {
+                if (control.textContent !== '← Propiedades' && control.textContent !== 'Copiar') control.disabled = true;
+            }
+            view.querySelectorAll('.drop').forEach(el => (el.style.pointerEvents = 'none'));
+        }
+        if (CFG.auth?.required && !CFG.auth.authenticated) view.prepend(accessCard());
     } catch (e) {
         // Si el problema es el almacenamiento, mostramos los pasos además del error.
         if (/blob/i.test(e.message)) {
@@ -452,11 +460,48 @@ async function route() {
     }
 }
 
-window.addEventListener('hashchange', route);
-$('#new-prop').onclick = newProperty;
+function accessCard() {
+    const card = h('div.card', { style: { marginBottom: '16px' } }, h('h2', {}, 'Acceso de administración'));
+    if (!CFG.auth.configured) {
+        card.append(h('p', {}, 'Modo de consulta. Para habilitar la edición, configurá INMO3D_ADMIN_TOKEN ' +
+            '(clave aleatoria de al menos 32 caracteres) en Vercel y volvé a desplegar.'));
+        return card;
+    }
+    const password = h('input', { type: 'password', autocomplete: 'current-password', placeholder: 'Clave de administración', 'aria-label': 'Clave de administración' });
+    const submit = h('button.btn.primary', { type: 'submit' }, 'Ingresar');
+    const form = h('form', {}, password, submit);
+    form.onsubmit = busy(submit, async (event) => {
+        event.preventDefault();
+        await api('/auth/login', { method: 'POST', body: { token: password.value } });
+        password.value = '';
+        await boot();
+    });
+    card.append(form);
+    return card;
+}
 
-CFG = await config();
-$('#ai-state').textContent = CFG.ai.text ?
-    `IA: ${CFG.ai.textModel}${CFG.ai.image ? ` + ${CFG.ai.imageProvider}` : ''}` : 'IA sin configurar';
-$('#ai-state').className = CFG.ai.text ? 'chip ok' : 'chip warn';
-route();
+async function boot() {
+    try {
+        CFG = await config(true);
+        $('#ai-state').textContent = CFG.ai.text ?
+            `IA: ${CFG.ai.textModel}${CFG.ai.image ? ` + ${CFG.ai.imageProvider}` : ''}` : 'IA sin configurar';
+        $('#ai-state').className = CFG.ai.text ? 'chip ok' : 'chip warn';
+        $('#new-prop').disabled = !CFG.auth?.authenticated;
+        $('#logout')?.remove();
+        if (CFG.auth?.required && CFG.auth.authenticated) {
+            const logout = h('button.btn.ghost.sm', { id: 'logout' }, 'Cerrar sesión');
+            logout.onclick = busy(logout, async () => {
+                await api('/auth/logout', { method: 'POST' });
+                await boot();
+            });
+            document.querySelector('header').append(logout);
+        }
+        await route();
+    } catch (e) {
+        view.replaceChildren(h('div.card', {}, h('h2', {}, 'No se pudo cargar el panel'), h('p', {}, e.message)));
+    }
+}
+
+window.addEventListener('hashchange', route);
+$('#new-prop').onclick = () => newProperty().catch(e => toast(e.message, true));
+boot();

@@ -34,7 +34,12 @@ export async function api(path, { method = 'GET', body, raw, headers = {} } = {}
         body: raw ?? (body ? JSON.stringify(body) : undefined)
     });
     const text = await res.text();
-    const data = text ? JSON.parse(text) : {};
+    let data;
+    try {
+        data = text ? JSON.parse(text) : {};
+    } catch {
+        throw new Error(`La API respondió HTTP ${res.status} sin JSON en /api${path}. Revisá el despliegue del servidor.`);
+    }
     if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
     return data;
 }
@@ -78,7 +83,8 @@ export const copy = async (text, what = 'Texto') => {
 
 let _cfg;
 /** La configuración del servidor (qué IA hay, qué almacenamiento, si puede reconstruir). */
-export async function config() {
+export async function config(refresh = false) {
+    if (refresh) _cfg = null;
     _cfg ??= await api('/config');
     return _cfg;
 }

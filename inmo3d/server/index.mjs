@@ -15,7 +15,7 @@ import * as ai from './ai.mjs';
 
 const ENGINE_ROOT = path.resolve(ROOT, '..');
 const WEB = path.join(ROOT, 'public');
-const CDN = 'https://cdn.jsdelivr.net/npm/playcanvas@2.23.0/build/playcanvas.mjs';
+const CDN = 'https://cdn.jsdelivr.net/npm/playcanvas@2.23.0-beta.9';
 
 // .env casero, para no depender de nada.
 for (const line of (await fs.readFile(path.join(ROOT, '.env'), 'utf8').catch(() => '')).split('\n')) {
@@ -74,7 +74,15 @@ const server = http.createServer(async (req, res) => {
             if (await fs.access(local).then(() => true, () => false)) {
                 return serveFile(res, ENGINE_ROOT, 'build/playcanvas.mjs');
             }
-            return send(res, 302, '', { location: CDN });
+            return send(res, 302, '', { location: `${CDN}/build/playcanvas.mjs` });
+        }
+        if (url.pathname.startsWith('/engine/scripts/')) {
+            const rel = url.pathname.slice('/engine/'.length);
+            const local = path.join(ENGINE_ROOT, rel);
+            if (await fs.access(local).then(() => true, () => false)) {
+                return serveFile(res, ENGINE_ROOT, rel);
+            }
+            return send(res, 302, '', { location: `${CDN}/${rel}` });
         }
         if (url.pathname.startsWith('/engine/')) {
             return serveFile(res, ENGINE_ROOT, url.pathname.slice('/engine/'.length));
@@ -86,7 +94,7 @@ const server = http.createServer(async (req, res) => {
 
         return await serveFile(res, WEB, url.pathname === '/' ? 'index.html' : url.pathname);
     } catch (e) {
-        send(res, 500, JSON.stringify({ error: e.message }), { 'content-type': 'application/json' });
+        send(res, e.status || 500, JSON.stringify({ error: e.message }), { 'content-type': 'application/json' });
     }
 });
 

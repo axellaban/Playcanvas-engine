@@ -3,6 +3,7 @@ import * as store from './store.mjs';
 import * as storage from './storage.mjs';
 import * as pipe from './pipeline.mjs';
 import * as ai from './ai.mjs';
+import { authStatus, requireAdmin, login, logout } from './auth.mjs';
 
 const json = (res, data, code = 200) => {
     res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -45,12 +46,19 @@ async function blobUploadToken(req, res) {
     const result = await handleUpload({
         body,
         request: req,
-        onBeforeGenerateToken: () => Promise.resolve({
-            allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/octet-stream'],
-            addRandomSuffix: false,
-            allowOverwrite: true,
-            maximumSizeInBytes: 1024 * 1024 * 1024
-        }),
+        onBeforeGenerateToken: async (pathname) => {
+            requireAdmin(req);
+            if (!/^[a-z0-9-]+\/(?:photos\/[a-z0-9.-]+\.(?:jpe?g|png|webp)|splat\/[a-z0-9.-]+\.(?:sog|ply|spz))$/.test(pathname)) {
+                throw new Error('Ruta de subida inválida.');
+            }
+            if (!await store.getProperty(pathname.split('/')[0])) throw new Error('Propiedad inexistente.');
+            return {
+                allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/octet-stream'],
+                addRandomSuffix: false,
+                allowOverwrite: true,
+                maximumSizeInBytes: 1024 * 1024 * 1024
+            };
+        },
         onUploadCompleted: async () => { /* el cliente confirma con POST .../attach */ }
     });
     return json(res, result);
@@ -69,13 +77,26 @@ export async function api(req, res, url) {
             canReconstruct: pipe.available(),
             writable: !(storage.onVercel && !storage.isBlob),
             clientUpload: storage.canClientUpload,
-            blobVars: storage.blobVars()
+            blobVars: storage.blobVars(),
+            auth: authStatus(req)
         });
     }
 
+    if (seg[0] === 'auth' && method === 'POST' && seg.length === 2) {
+        if (seg[1] === 'login') {
+            login(req, res, (await readJson(req, 4096)).token);
+            return json(res, { ok: true });
+        }
+        if (seg[1] === 'logout') {
+            logout(req, res);
+            return json(res, { ok: true });
+        }
+    }
+    // El SDK verifica la firma del callback de Blob; sólo la emisión exige sesión.
     if (seg[0] === 'blob' && seg[1] === 'upload' && method === 'POST') return blobUploadToken(req, res);
 
     if (seg[0] !== 'properties') return json(res, { error: 'Ruta desconocida.' }, 404);
+    if (method !== 'GET' && method !== 'HEAD') requireAdmin(req);
 
     if (seg.length === 1) {
         if (method === 'GET') return json(res, await store.listProperties());
@@ -84,6 +105,7 @@ export async function api(req, res, url) {
     }
 
     const id = seg[1];
+    if (!/^[a-z0-9-]+$/.test(id)) return fail(res, 'Identificador de propiedad inválido.');
     const action = seg[2];
 
     if (!action) {
@@ -215,9 +237,13 @@ export async function api(req, res, url) {
 /** Punto de entrada para la función serverless. */
 export default async function handler(req, res) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    if (url.pathname === '/api/index' || url.pathname === '/api') {
+        url.pathname = `/api/${url.searchParams.get('__path') || ''}`;
+        url.searchParams.delete('__path');
+    }
     try {
         await api(req, res, url);
     } catch (e) {
-        if (!res.headersSent) fail(res, e, 500);
+        if (!res.headersSent) fail(res, e, e.status || 500);
     }
 }

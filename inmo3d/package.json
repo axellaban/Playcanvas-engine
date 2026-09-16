@@ -5,6 +5,8 @@
   "type": "module",
   "description": "Fotos de una casa -> tour 3D navegable (Gaussian Splatting sobre PlayCanvas) + IA generativa para el rubro inmobiliario.",
   "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "lint": "eslint api public/src server test",
     "start": "node server/index.mjs",
     "demo": "node tools/demo-splat.mjs",
     "dev": "node --watch server/index.mjs",

@@ -6,23 +6,23 @@ import { h, $, api, toast, busy, money, config } from './ui.mjs';
 
 const qs = new URLSearchParams(location.search);
 const id = qs.get('id');
-const minimal = qs.get('ui') === 'min';          // modo visitante, para embeber en el portal
 const overlay = $('#overlay');
 const canvas = $('#canvas');
 const loader = $('#loader');
 
 const die = (msg) => {
-    $('#loader-text').innerHTML = msg;
-    $('#loader .spin').remove();
+    $('#loader-text').textContent = msg;
+    $('#loader .spin')?.remove();
     throw new Error(msg);
 };
 
-if (!id) die('Falta el parámetro <code>?id=</code>.');
-const prop = await api(`/properties/${id}`).catch(() => die('No encontré la propiedad.'));
+if (!id) die('Falta el identificador de la propiedad (?id=).');
+const prop = await api(`/properties/${encodeURIComponent(id)}`);
 if (!prop.scene.splatUrl) {
-    die(`Esta propiedad todavía no tiene escena 3D.<br><a href="/#/p/${id}">Volver al panel</a>`);
+    die('Esta propiedad todavía no tiene escena 3D. Subí un splat desde el panel.');
 }
 const CFG = await config();
+const minimal = qs.get('ui') === 'min' || !CFG.auth?.authenticated;
 
 $('#loader-text').textContent = 'cargando la casa… (la primera vez tarda un poco)';
 const viewer = await createViewer({
@@ -33,7 +33,8 @@ const viewer = await createViewer({
 }).catch(e => die(e.message));
 loader.remove();
 
-const save = patch => api(`/properties/${id}`, { method: 'PATCH', body: patch });
+// Las mediciones de un visitante viven sólo en su navegador.
+const save = patch => (minimal ? Promise.resolve() : api(`/properties/${id}`, { method: 'PATCH', body: patch }));
 const st = { tool: null, pending: [], stop: -1, markers: [] };
 
 const COLORS = { measure: new Color(1, 0.48, 0.27), pending: new Color(1, 0.9, 0.3) };
@@ -409,7 +410,7 @@ function sectionEscena() {
 
 const right = h('div.panel-r', {},
     !minimal && sectionEscena(),
-    h('section', {},
+    !minimal && h('section', {},
         h('h3', {}, '✨ Home staging virtual'),
         h('p.dim', { style: { fontSize: '.8rem', margin: '0 0 8px' } },
             'Encuadrá un ambiente y la IA lo amuebla respetando la arquitectura real.'),
@@ -422,12 +423,13 @@ const right = h('div.panel-r', {},
         h('small.dim', {}, viewer.state.metersPerUnit === 1 ?
             'Sin calibrar: las distancias son relativas. Usá 📐 Calibrar una vez.' :
             `Escala: 1 unidad = ${viewer.state.metersPerUnit.toFixed(3)} m`)),
-    h('section', {},
+    !minimal && h('section', {},
         h('h3', {}, '💬 Consultas'),
         chatLog,
         h('div', { style: { display: 'flex', gap: '6px' } }, chatInput, chatSend)));
 overlay.append(right);
 renderMeasures();
+renderMarkers();
 
 // ---------------------------------------------------------------- barra de herramientas
 

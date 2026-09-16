@@ -105,7 +105,9 @@ Atajos: `espacio` cambia de modo, `m` mide, `1-9` salta de parada, `Esc` cancela
 
 ## Deploy en Vercel
 
-Funciona sin build: `public/` es estático y toda la API es una sola función (`api/[...path].js`).
+Funciona sin build: `public/` es estático y toda la API es una sola función (`api/index.js`).
+El rewrite explícito de `/api/:path*` conserva las rutas anidadas mediante `__path`.
+El motor y sus scripts usan la versión publicada `2.23.0-beta.9`, igual que este fork.
 
 1. **Importá el repo** en Vercel y poné **Root Directory: `inmo3d`**.
 2. **Storage → Create Database → Blob**, con dos detalles que hay que acertar:
@@ -120,7 +122,16 @@ Funciona sin build: `public/` es estático y toda la API es una sola función (`
 
    Después: **Connect Project** y un **Redeploy** para que el deploy tome la variable.
 3. **Environment Variables**: `ANTHROPIC_API_KEY`, y `GEMINI_API_KEY` (o `OPENAI_API_KEY`) con
-   `INMO3D_IMAGE_PROVIDER` si querés home staging. Deploy.
+   `INMO3D_IMAGE_PROVIDER` si querés home staging. Agregá también `INMO3D_ADMIN_TOKEN`, una
+   clave aleatoria de al menos 32 caracteres (distinta de tus API keys). Deploy.
+
+En el panel, ingresá con esa clave para editar, subir archivos y usar IA. La sesión dura 12 horas
+y se guarda en una cookie HttpOnly, Secure en Vercel y SameSite=Strict. No va a localStorage.
+Sin una clave válida configurada, Vercel queda **sólo lectura**: se pueden consultar propiedades
+y tours, pero la API rechaza las escrituras y llamadas a IA. Rotar la variable invalida todas las
+sesiones. En local, la clave es opcional; si exponés el servidor fuera de tu máquina, configurala.
+Los tours públicos muestran las mediciones del propietario; las nuevas medidas de un visitante
+son temporales y no modifican la propiedad. El staging y el chat de IA requieren sesión de administrador.
 
 Qué cambia respecto de correrlo local:
 
@@ -180,7 +191,7 @@ inmo3d/
 │       ├── tour-ui.mjs  paradas, hotspots, medición, staging, chat, minimapa
 │       └── panel.mjs    el panel
 ├── api/
-│   └── [...path].js   la misma API, como función de Vercel
+│   └── index.js       la misma API, con rewrite explícito de Vercel
 ├── pipeline/        reconstruct.sh + Dockerfile (COLMAP + GLOMAP + OpenSplat)
 └── tools/
     └── demo-splat.mjs   casa sintética para probar sin GPU
@@ -237,6 +248,12 @@ Para que nadie se lleve una sorpresa:
 - No extrae el plano en planta automáticamente (el minimapa es esquemático, no un plano acotado).
 - No limpia sola los artefactos flotantes del escaneo: para eso, por ahora, SuperSplat.
 - El staging genera una imagen, no muebles 3D dentro de la escena.
-- Un solo usuario, sin login: pensado para correr en la máquina de la inmobiliaria o detrás de un proxy.
-  Si lo desplegás público, cualquiera con el link puede crear y borrar propiedades.
+- Una sola clave administrativa; todavía no hay cuentas por inmobiliaria ni roles. Las propiedades
+  y sus archivos siguen siendo públicos por diseño; no guardes documentos o notas confidenciales.
 - El pipeline necesita GPU. Sin GPU, el camino es entrenar afuera y subir el `.ply`/`.sog`.
+
+## Verificación
+
+`npm test` dentro de `inmo3d/` prueba el handler HTTP real: rutas anidadas, alta/lectura/edición,
+sesión, rechazo de escrituras anónimas, CSRF y respuestas JSON. Usa datos temporales aislados.
+Después de instalar las dependencias de la raíz, `npm run lint` dentro de `inmo3d/` revisa la app.
