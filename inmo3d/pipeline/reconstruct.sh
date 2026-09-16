@@ -38,6 +38,15 @@ mkdir -p "$OUT" "$WORK"
 have() { command -v "$1" >/dev/null 2>&1; }
 die()  { echo "ERROR: $*" >&2; exit 1; }
 
+# Si una corrida anterior ya dejó el .sog terminado —se cortó la luz justo cuando lo subía, se
+# reinició la máquina— no hay absolutamente nada que rehacer: son horas de entrenamiento que ya
+# están pagadas y el archivo está ahí. Volver a entrenar sería tirarlas por una formalidad.
+if [[ -z "$SOLO_SFM" && -s "$OUT/model.sog" ]]; then
+  echo "Ya estaba hecho: reuso el model.sog que dejó la corrida anterior."
+  echo "::step:listo"
+  exit 0
+fi
+
 # Cuántas fotos ubicó un modelo; cero si esa carpeta no es un modelo.
 cuantas() {
   local n
@@ -70,6 +79,17 @@ if [[ -z "$MATCHER" ]]; then
 fi
 
 have colmap || die "Falta COLMAP. Instalalo (brew install colmap / apt install colmap) o usá pipeline/Dockerfile."
+
+# La compresión final usa splat-transform. Si no está instalado como programa, `npx` lo baja de
+# internet — y eso pasa recién al final, después de las horas de entrenamiento. Un corte de
+# conexión justo ahí tiraba la noche entera. Lo traemos ahora: si falta internet conviene
+# enterarse en el minuto uno y no en la hora ocho. No corta la corrida, porque la conexión bien
+# puede volver para cuando haga falta de verdad; sólo deja el aviso escrito.
+if ! have splat-transform; then
+  echo "Dejo lista la herramienta de compresión…"
+  npx -y @playcanvas/splat-transform --version </dev/null >/dev/null 2>&1 ||
+    echo "AVISO: no pude preparar splat-transform. Si al final tampoco hay internet, la compresión falla."
+fi
 
 # Qué sabe hacer este COLMAP: se lo preguntamos al binario en vez de suponerlo. El de
 # Homebrew viene compilado sin CUDA, y no es que no pueda usar la GPU — ni siquiera

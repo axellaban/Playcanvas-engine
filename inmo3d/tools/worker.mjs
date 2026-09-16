@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { desdeVideo } from './fotogramas.mjs';
+import { dormir, porfiar } from './reintentar.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -29,6 +30,13 @@ const REINTENTOS = 2;
 // reintenta solo. Uno que aparece después de horas de entrenamiento no: repetirlo son otras
 // tantas horas para llegar al mismo lado, y eso hay que mirarlo, no insistirlo.
 const RAPIDO = 15 * 60_000;
+// Entre un intento y el otro se espera. Antes se reintentaba en el acto, y los tres intentos
+// se consumían en segundos: contra un corte de internet los tres fallaban por lo mismo.
+const ESPERA_REINTENTO = [30_000, 120_000];
+// El material de trabajo no va más a una carpeta al azar que se pierde al reiniciar. Va a una
+// carpeta fija por pedido, para que un corte de luz no obligue a rehacer las horas de cálculo
+// de cámaras que ya estaban hechas. Se puede mudar con INMO3D_TRABAJOS (lo usan los tests).
+const TRABAJOS = process.env.INMO3D_TRABAJOS || path.join(os.homedir(), '.inmo3d', 'trabajos');
 
 let cookie = '';
 
@@ -79,16 +87,34 @@ function noDormir() {
     return () => hijo.kill();
 }
 
-/** Se baja las fotos de la propiedad a una carpeta temporal. */
+/** Cómo se cuenta un reintento en el registro, para que se entienda que no es un error. */
+const avisarReintento = que => (e, espera) => {
+    log(`  ${que}: ${e.message} — reintento en ${Math.round(espera / 1000)}s`);
+};
+
+/** Baja un archivo con paciencia: bajar de nuevo cuesta segundos, así que se porfía. */
+async function bajar(url, destino, que) {
+    await porfiar(async () => {
+        const res = await fetch(url.startsWith('http') ? url : `${BASE}${url}`);
+        if (!res.ok) {
+            throw Object.assign(new Error(`No pude bajar ${que} (HTTP ${res.status})`), { status: res.status });
+        }
+        await fs.writeFile(destino, Buffer.from(await res.arrayBuffer()));
+    }, { avisar: avisarReintento(`bajar ${que}`) });
+}
+
+/** Se baja las fotos de la propiedad a una carpeta de trabajo. */
 async function bajarFotos(trabajo, dir) {
     await fs.mkdir(dir, { recursive: true });
     let n = 0;
     for (const foto of trabajo.fotos) {
-        const url = foto.url.startsWith('http') ? foto.url : `${BASE}${foto.url}`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`No pude bajar ${foto.file} (HTTP ${res.status})`);
-        await fs.writeFile(path.join(dir, foto.file), Buffer.from(await res.arrayBuffer()));
-        if (++n % 20 === 0) await api(`/jobs/${trabajo.id}`, { step: 'bajando fotos', progress: Math.round(n / trabajo.fotos.length * 10) });
+        await bajar(foto.url, path.join(dir, foto.file), foto.file);
+        // Contar el avance es cortesía, no parte del trabajo: si la app no contesta, se sigue.
+        if (++n % 20 === 0) {
+            await api(`/jobs/${trabajo.id}`, {
+                step: 'bajando fotos', progress: Math.round(n / trabajo.fotos.length * 10)
+            }).catch(() => {});
+        }
     }
     return n;
 }
@@ -157,11 +183,10 @@ async function subir(trabajo, archivo) {
 async function desdeElVideo(trabajo, dir, opciones = {}) {
     await fs.mkdir(dir, { recursive: true });
     const destino = path.join(dir, '..', 'recorrido.mp4');
-    // Si ya está bajado no se vuelve a bajar: la segunda pasada saca otros cuadros del mismo.
+    // Si ya está bajado no se vuelve a bajar: la segunda pasada saca otros cuadros del mismo,
+    // y una corrida que retoma después de un corte se lo encuentra hecho.
     if (!await fs.stat(destino).then(f => f.size > 0, () => false)) {
-        const res = await fetch(trabajo.video.startsWith('http') ? trabajo.video : `${BASE}${trabajo.video}`);
-        if (!res.ok) throw new Error(`No pude bajar el video (HTTP ${res.status})`);
-        await fs.writeFile(destino, Buffer.from(await res.arrayBuffer()));
+        await bajar(trabajo.video, destino, 'el video');
     }
 
     const avisar = async (texto) => {
@@ -214,9 +239,34 @@ async function mejorArranque(trabajo, base) {
     return denso.ubicadas > normal.ubicadas ? denso : normal;
 }
 
+/**
+ * La carpeta donde vive el material de este pedido. El nombre sale del pedido y no del azar,
+ * para que una corrida que se cortó a la mitad —un apagón, un reinicio, el worker que se
+ * cayó— se encuentre hecho lo que ya estaba hecho y no repita las horas de cálculo de
+ * cámaras. Cuando se vuelve a pedir la reconstrucción desde el panel el pedido es otro, el
+ * nombre cambia y ahí sí se arranca limpio: si no, un reintento a mano reusaría para siempre
+ * el mismo modelo fallado, que es justo lo contrario de lo que se le pidió.
+ */
+async function carpetaDeTrabajo(trabajo) {
+    const sello = String(trabajo.pedidoEn ?? '').replace(/\D/g, '') || 'suelto';
+    const base = path.join(TRABAJOS, `${trabajo.id}-${sello}`);
+    // Lo que quedó de pedidos viejos de esta misma propiedad ya no sirve y son cientos de
+    // megas. Se compara el nombre entero y no por prefijo: "casa" no tiene que llevarse
+    // puesta la carpeta de "casa-2".
+    for (const nombre of await fs.readdir(TRABAJOS).catch(() => [])) {
+        const m = /^(.*)-(?:\d+|suelto)$/.exec(nombre);
+        if (m && m[1] === trabajo.id && nombre !== path.basename(base)) {
+            await fs.rm(path.join(TRABAJOS, nombre), { recursive: true, force: true }).catch(() => {});
+        }
+    }
+    await fs.mkdir(base, { recursive: true });
+    return base;
+}
+
 async function procesar(trabajo) {
-    const base = await fs.mkdtemp(path.join(os.tmpdir(), `inmo3d-${trabajo.id}-`));
+    const base = await carpetaDeTrabajo(trabajo);
     const dejarDormir = noDormir();
+    let terminado = false;
     log(`▶ ${trabajo.titulo} (${trabajo.video ? 'video' : `${trabajo.fotos.length} fotos`})`);
     try {
         // Se reusa la misma carpeta entre intentos a propósito: el pipeline reconoce el
@@ -229,8 +279,17 @@ async function procesar(trabajo) {
                 // que esta corrida lo reusa y va derecho a entrenar.
                 const { fotos, salida } = await mejorArranque(trabajo, base);
                 await reconstruir(trabajo, fotos, salida);
-                const url = await subir(trabajo, path.join(salida, 'model.sog'));
-                await api(`/jobs/${trabajo.id}`, { splatUrl: url, file: `${trabajo.id}/splat/model.sog` });
+                const archivo = path.join(salida, 'model.sog');
+                // El 3D ya está hecho y guardado en el disco: volver a subirlo cuesta segundos.
+                // Rendirse acá por un corte de internet era tirar las horas que ya estaban hechas.
+                const url = await porfiar(() => subir(trabajo, archivo),
+                    { avisar: avisarReintento('subir el 3D') }).catch((e) => {
+                    throw new Error(`${e.message}. El 3D terminado NO se perdió: quedó en ${archivo}`);
+                });
+                await porfiar(() => api(`/jobs/${trabajo.id}`,
+                    { splatUrl: url, file: `${trabajo.id}/splat/model.sog` }),
+                { avisar: avisarReintento('avisarle a la app que está listo') });
+                terminado = true;
                 log(`✔ ${trabajo.titulo} listo`);
                 return;
             } catch (e) {
@@ -240,17 +299,28 @@ async function procesar(trabajo) {
                     return;
                 }
                 const van = `${intento + 1} de ${REINTENTOS}`;
-                log(`⟳ ${trabajo.titulo}: ${e.message} — reintento ${van}`);
+                // Se espera antes de volver a probar. Si lo que falló fue la conexión, repetir
+                // en el mismo segundo falla por lo mismo: los tres intentos se consumían en un
+                // suspiro sin darle tiempo a la red a volver.
+                const espera = ESPERA_REINTENTO[Math.min(intento, ESPERA_REINTENTO.length - 1)];
+                const seg = Math.round(espera / 1000);
+                log(`⟳ ${trabajo.titulo}: ${e.message} — reintento ${van} en ${seg}s`);
                 await api(`/jobs/${trabajo.id}`, {
                     step: `reintentando (${van})`,
-                    log: `\n⟳ falló y lo reintento solo (${van}): ${e.message}\n`
+                    log: `\n⟳ falló y lo reintento solo (${van}), en ${seg}s: ${e.message}\n`
                 }).catch(() => {});
+                await dormir(espera);
             }
         }
     } finally {
         dejarDormir();
-        // El material queda por si hay que mirar qué pasó; se limpia solo al reiniciar la máquina.
-        log(`  material en ${base}`);
+        if (terminado) {
+            // Con el 3D ya subido esto no sirve más, y son cientos de megas por propiedad.
+            await fs.rm(base, { recursive: true, force: true }).catch(() => {});
+        } else {
+            // Queda para mirar qué pasó, y para que la corrida que retome no empiece de cero.
+            log(`  material en ${base} — si el worker se corta, retoma desde ahí`);
+        }
     }
 }
 

@@ -112,6 +112,9 @@ export async function tomar(nombreWorker, reiniciado = false) {
         return {
             id: prop.id,
             titulo: prop.meta.title,
+            // Viaja para que el worker sepa si esto es el mismo pedido que venía haciendo
+            // —y entonces retoma lo que ya calculó— o uno nuevo, que arranca limpio.
+            pedidoEn: prop.job.pedidoEn,
             opciones: prop.job.opciones ?? {},
             fotos: prop.photos.map(f => ({ file: f.file, url: f.url })),
             video: prop.video?.url ?? null

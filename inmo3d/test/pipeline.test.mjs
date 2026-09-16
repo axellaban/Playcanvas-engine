@@ -244,3 +244,35 @@ test('con --solo-sfm calcula las cámaras, informa y para antes de entrenar', as
     assert.doesNotMatch(stdout, /::step:entrenando/, 'pero no arranca a entrenar');
     await assert.rejects(access(path.join(salida, 'model.sog')), 'ni deja un resultado final');
 });
+
+test('si el .sog ya está hecho, no vuelve a entrenar', async () => {
+    // Un apagón justo cuando subía el archivo terminado no puede costar otra noche entera: el
+    // resultado está ahí, en el disco. Hay que reconocerlo y seguir, no rehacerlo por prolijidad.
+    const { bin, fotos, salida } = await preparar();
+    const entorno = { cwd: RAIZ, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } };
+    const args = [path.join(RAIZ, 'pipeline', 'reconstruct.sh'),
+        '--photos', fotos, '--out', salida, '--sfm', 'colmap'];
+    await correr('bash', args, entorno);
+    await access(path.join(salida, 'model.sog'));
+
+    const { stdout } = await correr('bash', args, entorno);
+    assert.match(stdout, /Ya estaba hecho/, 'tendría que reconocer el trabajo terminado');
+    assert.match(stdout, /::step:listo/, 'y darlo por listo');
+    assert.doesNotMatch(stdout, /::step:entrenando/, 'sin volver a entrenar horas al pedo');
+});
+
+test('medir la cobertura nunca se saltea, aunque haya un .sog viejo', async () => {
+    // El atajo de arriba vale sólo para la corrida completa. --solo-sfm existe justamente para
+    // volver a medir cuánta casa entra: si se salteara por un .sog de antes, dejaría de medir
+    // en el único momento en que se lo llama, y el worker elegiría a ciegas con qué entrenar.
+    const { bin, fotos, salida } = await preparar();
+    const entorno = { cwd: RAIZ, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } };
+    const base = [path.join(RAIZ, 'pipeline', 'reconstruct.sh'),
+        '--photos', fotos, '--out', salida, '--sfm', 'colmap'];
+    await correr('bash', base, entorno);
+
+    const { stdout } = await correr('bash', [...base, '--solo-sfm'], entorno);
+    assert.match(stdout, /::step:sfm-listo/, 'tiene que medir igual');
+    assert.match(stdout, /Fotos ubicadas en el modelo: 25 de 25/, 'e informar la cobertura');
+    assert.doesNotMatch(stdout, /Ya estaba hecho/, 'el atajo no es para medir');
+});

@@ -84,8 +84,17 @@ test('cola de reconstrucción: de la web al worker y de vuelta', async (t) => {
         ].join('\n'));
         await fs.chmod(stub, 0o755);
 
+        // El material de trabajo va a una carpeta nuestra y no a la de verdad del usuario.
+        const trabajos = path.join(dataDir, 'trabajos');
         const worker = spawn('node', [path.join(ROOT, 'tools', 'worker.mjs')], {
-            env: { ...process.env, INMO3D_URL: base, INMO3D_PIPELINE: stub, INMO3D_WORKER_POLL: '1', INMO3D_DATA: dataDir },
+            env: {
+                ...process.env,
+                INMO3D_URL: base,
+                INMO3D_PIPELINE: stub,
+                INMO3D_WORKER_POLL: '1',
+                INMO3D_DATA: dataDir,
+                INMO3D_TRABAJOS: trabajos
+            },
             stdio: 'ignore'
         });
         t.after(() => worker.kill());
@@ -112,6 +121,12 @@ test('cola de reconstrucción: de la web al worker y de vuelta', async (t) => {
         const sog = await fetch(lista.scene.splatUrl.startsWith('http') ?
             lista.scene.splatUrl : `${base}${lista.scene.splatUrl}`);
         assert.equal(await sog.text(), 'sog-de-prueba', 'el .sog subido es el que generó el pipeline');
+
+        // Mientras dura, el trabajo deja cuadros, base de datos y modelos: cientos de megas por
+        // propiedad. Se guardan a propósito para poder retomar si se corta, pero una vez que el
+        // 3D está arriba no sirven más, y si no se limpian llenan el disco de la máquina.
+        assert.deepEqual(await fs.readdir(trabajos).catch(() => []), [],
+            'el material de trabajo se limpia cuando el 3D ya quedó subido');
     });
 });
 
