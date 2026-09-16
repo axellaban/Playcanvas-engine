@@ -37,23 +37,34 @@ mkdir -p "$OUT" "$WORK"
 have() { command -v "$1" >/dev/null 2>&1; }
 die()  { echo "ERROR: $*" >&2; exit 1; }
 
-# El COLMAP de Homebrew en Mac viene compilado sin soporte de GPU, y pedirle SIFT por
-# GPU lo hace fallar. Lo detectamos del propio binario en vez de confiar en que alguien
-# se acuerde de exportar una variable.
+echo "::step:preparando"
+N=$(find "$PHOTOS" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | wc -l)
+echo "Fotos encontradas: $N"
+[[ "$N" -ge 20 ]] || die "Hacen falta al menos 20 fotos (tenés $N)."
+have colmap || die "Falta COLMAP. Instalalo (brew install colmap / apt install colmap) o usá pipeline/Dockerfile."
+
+# Qué sabe hacer este COLMAP: se lo preguntamos al binario en vez de suponerlo. El de
+# Homebrew viene compilado sin CUDA, y no es que no pueda usar la GPU — ni siquiera
+# conoce las opciones que la controlan, así que pasarle "--SiftExtraction.use_gpu 0" lo
+# hace abortar antes de mirar una sola foto. Si el binario no las tiene, van afuera.
+AYUDA="$(colmap --help 2>&1 || true)"
 if [[ -z "${INMO3D_GPU:-}" ]]; then
-  if command -v colmap >/dev/null 2>&1 && colmap --help 2>&1 | head -2 | grep -qi "without GPU"; then
+  if grep -qi "without GPU" <<<"$AYUDA"; then
     INMO3D_GPU=0
     echo "COLMAP sin soporte de GPU: uso CPU (más lento, mismo resultado)."
   else
     INMO3D_GPU=1
   fi
 fi
-
-echo "::step:preparando"
-N=$(find "$PHOTOS" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | wc -l)
-echo "Fotos encontradas: $N"
-[[ "$N" -ge 20 ]] || die "Hacen falta al menos 20 fotos (tenés $N)."
-have colmap || die "Falta COLMAP. Instalalo (apt install colmap) o usá pipeline/Dockerfile."
+# Sin comillas al usarlas más abajo: son valores fijos sin espacios, y cuando están
+# vacías no tienen que ocupar un argumento.
+GPU_EXTRAER=""; GPU_EMPAREJAR=""
+if grep -q -- '--SiftExtraction.use_gpu' <<<"$(colmap feature_extractor --help 2>&1 || true)"; then
+  GPU_EXTRAER="--SiftExtraction.use_gpu $INMO3D_GPU"
+fi
+if grep -q -- '--SiftMatching.use_gpu' <<<"$(colmap "${MATCHER}_matcher" --help 2>&1 || true)"; then
+  GPU_EMPAREJAR="--SiftMatching.use_gpu $INMO3D_GPU"
+fi
 
 DB="$WORK/database.db"
 SPARSE="$WORK/sparse"
@@ -67,10 +78,9 @@ if [[ ! -d "$PROJECT/sparse/0" ]]; then
   colmap feature_extractor \
     --database_path "$DB" --image_path "$PHOTOS" \
     --ImageReader.single_camera 1 --ImageReader.camera_model OPENCV \
-    --SiftExtraction.use_gpu "${INMO3D_GPU:-1}"
+    $GPU_EXTRAER
 
-  colmap "${MATCHER}_matcher" --database_path "$DB" \
-    --SiftMatching.use_gpu "${INMO3D_GPU:-1}"
+  colmap "${MATCHER}_matcher" --database_path "$DB" $GPU_EMPAREJAR
 
   if [[ "$SFM" == "glomap" ]] && have glomap; then
     # GLOMAP resuelve la estructura global: mismo resultado que COLMAP pero mucho más rápido.
