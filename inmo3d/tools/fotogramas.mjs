@@ -62,8 +62,12 @@ const correr = (args, alSalir) => new Promise((resolve, reject) => {
     hijo.stdout.on('data', alSalir);
     hijo.on('error', e => reject(new Error(e.code === 'ENOENT' ?
         'Falta ffmpeg. En Mac: brew install ffmpeg' : e.message)));
-    hijo.on('close', code => (code === 0 ? resolve() : reject(new Error(`ffmpeg falló: ${error.slice(-500)}`))));
+    hijo.on('close', code => (code === 0 ? resolve() :
+        reject(Object.assign(new Error(`ffmpeg falló: ${error.slice(-500)}`), { salida: error }))));
 });
+
+/** Una opción que ffmpeg no conoce: pasa con las que cambiaron de nombre entre versiones. */
+export const opcionDesconocida = mensaje => /Unrecognized option|Option not found|Unknown option/i.test(mensaje || '');
 
 /** Mide la nitidez de todos los cuadros del video, a `fps` por segundo. */
 export async function medir(video, fps = 6) {
@@ -87,11 +91,21 @@ export async function medir(video, fps = 6) {
 export async function extraer(video, indices, destino, { fps = 6, ancho = 1800 } = {}) {
     if (!indices.length) throw new Error('El video no dejó ningún cuadro utilizable.');
     const seleccion = indices.map(i => `eq(n\\,${i})`).join('+');
-    await correr([
+    const base = [
         '-hide_banner', '-loglevel', 'error', '-i', video,
-        '-vf', `fps=${fps},select='${seleccion}',scale='min(${ancho},iw)':-2`,
-        '-vsync', '0', '-q:v', '2', `${destino}/cuadro-%04d.jpg`
-    ], () => {});
+        '-vf', `fps=${fps},select='${seleccion}',scale='min(${ancho},iw)':-2`
+    ];
+    const salida = ['-q:v', '2', `${destino}/cuadro-%04d.jpg`];
+
+    // Sin esto ffmpeg rellena los huecos que deja `select` duplicando cuadros. La opción
+    // cambió de nombre: `-vsync` en las versiones viejas, `-fps_mode` desde la 5.1, y las
+    // nuevas ya ni reconocen la vieja. Probamos la actual y caemos a la anterior.
+    try {
+        await correr([...base, '-fps_mode', 'passthrough', ...salida], () => {});
+    } catch (e) {
+        if (!opcionDesconocida(e.salida)) throw e;
+        await correr([...base, '-vsync', '0', ...salida], () => {});
+    }
     return indices.length;
 }
 

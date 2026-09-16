@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { nitidez, elegir } from '../tools/fotogramas.mjs';
+import { nitidez, elegir, opcionDesconocida } from '../tools/fotogramas.mjs';
 
 const ANCHO = 160, ALTO = 120;
 
@@ -53,4 +53,14 @@ test('si el video entero está movido, devuelve algo igual', () => {
 test('un video corto entrega todos sus cuadros', () => {
     const elegidos = elegir([500, 480, 520], 80);
     assert.equal(elegidos.length, 3);
+});
+
+test('reconoce cuando ffmpeg no entiende una opción', () => {
+    // Las versiones nuevas sacaron `-vsync` y las viejas no tienen `-fps_mode`: extraer()
+    // prueba una y cae a la otra, pero sólo si sabe distinguir ese error de uno real.
+    for (const m of ['Unrecognized option \'vsync\'.', 'Option not found', 'Unknown option fps_mode']) {
+        assert.ok(opcionDesconocida(m), `tendría que reconocer: ${m}`);
+    }
+    assert.ok(!opcionDesconocida('No such file or directory'), 'un video que falta no es una opción vieja');
+    assert.ok(!opcionDesconocida(undefined), 'sin mensaje no se asume nada');
 });
