@@ -37,6 +37,18 @@ mkdir -p "$OUT" "$WORK"
 have() { command -v "$1" >/dev/null 2>&1; }
 die()  { echo "ERROR: $*" >&2; exit 1; }
 
+# El COLMAP de Homebrew en Mac viene compilado sin soporte de GPU, y pedirle SIFT por
+# GPU lo hace fallar. Lo detectamos del propio binario en vez de confiar en que alguien
+# se acuerde de exportar una variable.
+if [[ -z "${INMO3D_GPU:-}" ]]; then
+  if command -v colmap >/dev/null 2>&1 && colmap --help 2>&1 | head -2 | grep -qi "without GPU"; then
+    INMO3D_GPU=0
+    echo "COLMAP sin soporte de GPU: uso CPU (más lento, mismo resultado)."
+  else
+    INMO3D_GPU=1
+  fi
+fi
+
 echo "::step:preparando"
 N=$(find "$PHOTOS" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | wc -l)
 echo "Fotos encontradas: $N"
