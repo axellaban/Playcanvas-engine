@@ -32,6 +32,18 @@ for a in "$@"; do
       echo "Failed to parse options - unrecognised option '$a'." >&2; exit 1 ;;
   esac
 done
+# El de verdad aborta si le mandan la misma opción dos veces, sin mirar una sola foto. Por
+# ahí se coló un bug que dejó los reintentos sin efecto, así que el de mentira hace lo mismo.
+vistas=""
+for a in "$@"; do
+  case "$a" in --*)
+    case " $vistas " in *" $a "*)
+      echo "Failed to parse options - option '$a' cannot be specified more than once." >&2
+      exit 1 ;;
+    esac
+    vistas="$vistas $a" ;;
+  esac
+done
 # El menú de cada subcomando, sin las de GPU: es lo que el pipeline consulta antes de usarlas.
 if [[ " $* " == *" --help "* ]]; then
   echo "Options:"

@@ -58,7 +58,7 @@ mejor_modelo() {
 }
 
 echo "::step:preparando"
-N=$(find "$PHOTOS" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | wc -l)
+N=$(find "$PHOTOS" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | wc -l | tr -d '[:space:]')
 echo "Fotos encontradas: $N"
 [[ "$N" -ge 20 ]] || die "Hacen falta al menos 20 fotos (tenés $N)."
 # Comparar todas las tomas contra todas es lo que más engancha, pero crece al cuadrado y con
@@ -113,12 +113,6 @@ if [[ "$INMO3D_GPU" == 0 ]]; then
   OPC_EXTRAER="$OPC_EXTRAER $(si_acepta "$AYUDA_EXTRAER" --SiftExtraction.domain_size_pooling 1)"
 fi
 
-# Por defecto COLMAP descarta una toma que no encaja con mucho margen. Con material de video
-# eso deja medio recorrido afuera, así que le bajamos el listón: mejor una pose apenas menos
-# precisa que un agujero en la casa.
-OPC_MAPPER="$(si_acepta "$AYUDA_MAPPER" --Mapper.init_min_num_inliers 50)"
-OPC_MAPPER="$OPC_MAPPER $(si_acepta "$AYUDA_MAPPER" --Mapper.abs_pose_min_num_inliers 15)"
-
 DB="$WORK/database.db"
 SPARSE="$WORK/sparse"
 PROJECT="$WORK/project"     # layout estándar: project/images + project/sparse/0
@@ -149,8 +143,11 @@ if [[ ! -d "$PROJECT/sparse/0" ]]; then
     # video es el que es y hay que sacarle lo que tenga, aunque salga apenas menos preciso.
     META=$(( N * 7 / 10 ))
     for NIVEL in 1 2 3; do
+      # Cada nivel lleva el juego completo, nunca un agregado al anterior: COLMAP aborta si
+      # recibe la misma opción dos veces, y así no hay forma de que se repita ninguna.
       case "$NIVEL" in
-        1) AFLOJE="" ;;
+        1) AFLOJE="$(si_acepta "$AYUDA_MAPPER" --Mapper.init_min_num_inliers 50)"
+           AFLOJE="$AFLOJE $(si_acepta "$AYUDA_MAPPER" --Mapper.abs_pose_min_num_inliers 15)" ;;
         2) AFLOJE="$(si_acepta "$AYUDA_MAPPER" --Mapper.init_min_num_inliers 30)"
            AFLOJE="$AFLOJE $(si_acepta "$AYUDA_MAPPER" --Mapper.abs_pose_min_num_inliers 10)"
            AFLOJE="$AFLOJE $(si_acepta "$AYUDA_MAPPER" --Mapper.min_num_matches 8)" ;;
@@ -163,7 +160,7 @@ if [[ ! -d "$PROJECT/sparse/0" ]]; then
       TANDA="$SPARSE/intento-$NIVEL"; mkdir -p "$TANDA"
       # Que un intento falle no es el final: queda el anterior, y todavía hay otro por probar.
       colmap mapper --database_path "$DB" --image_path "$PHOTOS" \
-        --output_path "$TANDA" $OPC_MAPPER $AFLOJE || true
+        --output_path "$TANDA" $AFLOJE || true
       CANDIDATO="$(mejor_modelo "$TANDA")"; CUANTAS=$(cuantas "$CANDIDATO")
       echo "Intento $NIVEL: $CUANTAS de $N tomas ubicadas."
       if [[ "$CUANTAS" -gt "$UBICADAS" ]]; then UBICADAS=$CUANTAS; MODELO="$CANDIDATO"; fi
