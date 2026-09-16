@@ -8,12 +8,18 @@ test('Blob token authorization cannot overwrite property metadata', async () => 
     const { default: handler } = await import('../api/index.js');
     const { login } = await import('../server/auth.mjs');
     let cookie;
-    login({ headers: {} }, { setHeader: (key, value) => { cookie = value.split(';')[0]; } }, process.env.INMO3D_ADMIN_TOKEN);
+    login({ headers: {} }, { setHeader: (key, value) => {
+        cookie = value.split(';')[0];
+    } }, process.env.INMO3D_ADMIN_TOKEN);
     const invoke = async (body, headers = {}) => {
         let status, response;
         await handler({ url: '/api/blob/upload', method: 'POST', headers, body }, {
-            writeHead: (code) => { status = code; },
-            end: (text) => { response = JSON.parse(text); }
+            writeHead: (code) => {
+                status = code;
+            },
+            end: (text) => {
+                response = JSON.parse(text);
+            }
         });
         return { status, response };
     };

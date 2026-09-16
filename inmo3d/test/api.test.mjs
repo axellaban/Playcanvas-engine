@@ -19,7 +19,9 @@ test('HTTP routing, property lifecycle and administrative sessions', async (t) =
     await once(server, 'listening');
     t.after(async () => {
         server.closeAllConnections();
-        await new Promise((resolve) => { server.close(resolve); });
+        await new Promise((resolve) => {
+            server.close(resolve);
+        });
         await fs.rm(dataDir, { recursive: true, force: true });
     });
     const base = `http://127.0.0.1:${server.address().port}`;
