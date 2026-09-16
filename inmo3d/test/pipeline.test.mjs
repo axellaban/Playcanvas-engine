@@ -14,7 +14,13 @@ import path from 'node:path';
 const correr = promisify(execFile);
 const RAIZ = path.resolve(import.meta.dirname, '..');
 
-/** Un COLMAP compilado sin CUDA: no conoce las opciones de GPU y aborta si se las pasan. */
+/**
+ * Un COLMAP de mentira que imita al de Homebrew en lo que importa: está compilado sin CUDA
+ * (ni conoce las opciones de GPU), deja el modelo suelto en sparse/ y no en sparse/0, y puede
+ * terminar bien habiendo ubicado una fracción de las fotos. Cuántas ubica cada intento se fija
+ * desde afuera con INMO3D_TEST_REG1/2/3, y el número viaja con el modelo: así el que se elige
+ * al final es el que se informa, y el test puede notar si se agarró el intento equivocado.
+ */
 const COLMAP_SIN_GPU = `#!/usr/bin/env bash
 sub="\${1:-}"; shift || true
 if [[ "$sub" == "--help" || -z "$sub" ]]; then
@@ -26,20 +32,55 @@ for a in "$@"; do
       echo "Failed to parse options - unrecognised option '$a'." >&2; exit 1 ;;
   esac
 done
-[[ " $* " == *" --help "* ]] && { echo "Options:"; exit 0; }
+# El menú de cada subcomando, sin las de GPU: es lo que el pipeline consulta antes de usarlas.
+if [[ " $* " == *" --help "* ]]; then
+  echo "Options:"
+  case "$sub" in
+    feature_extractor) echo "  --SiftExtraction.estimate_affine_shape
+  --SiftExtraction.domain_size_pooling" ;;
+    *_matcher) echo "  --SiftMatching.guided_matching
+  --SiftMatching.min_num_inliers
+  --SequentialMatching.overlap
+  --SequentialMatching.quadratic_overlap" ;;
+    mapper) echo "  --Mapper.init_min_num_inliers
+  --Mapper.abs_pose_min_num_inliers
+  --Mapper.min_num_matches
+  --Mapper.filter_max_reproj_error
+  --Mapper.min_model_size" ;;
+  esac
+  exit 0
+fi
+
+# El valor que sigue a una opción, o vacío.
+arg() { local q="$1" c=""; shift; for a in "$@"; do
+  [[ -n "$c" ]] && { echo "$a"; return; }; [[ "$a" == "$q" ]] && c=1; done; }
+
 case "$sub" in
-  mapper) for a in "$@"; do [[ -n "\${cap:-}" ]] && mkdir -p "$a/0" && unset cap; [[ "$a" == "--output_path" ]] && cap=1; done ;;
-  # El de verdad deja el modelo suelto en sparse/, no en sparse/0: de ahí salía el bug.
-  image_undistorter) for a in "$@"; do
-      [[ -n "\${cap:-}" ]] && { mkdir -p "$a/sparse"; : > "$a/sparse/cameras.bin"; : > "$a/sparse/images.bin"; unset cap; }
-      [[ "$a" == "--output_path" ]] && cap=1
-    done ;;
-  # Y si le dan una carpeta que no existe, falla: así el test nota si nadie acomodó el modelo.
-  model_analyzer) for a in "$@"; do
-      [[ -n "\${cap:-}" ]] && { [[ -d "$a" ]] || { echo "ERROR: modelo inexistente" >&2; exit 1; }; unset cap; }
-      [[ "$a" == "--path" ]] && cap=1
-    done
-    echo "Images: \${INMO3D_TEST_REGISTRADAS:-25}" ;;
+  mapper)
+    out="$(arg --output_path "$@")"
+    echo "mapper opciones: $*"
+    case "$out" in
+      *intento-1) n="\${INMO3D_TEST_REG1:-25}" ;;
+      *intento-2) n="\${INMO3D_TEST_REG2:-\${INMO3D_TEST_REG1:-25}}" ;;
+      *)          n="\${INMO3D_TEST_REG3:-\${INMO3D_TEST_REG2:-\${INMO3D_TEST_REG1:-25}}}" ;;
+    esac
+    mkdir -p "$out/0"; : > "$out/0/cameras.bin"
+    if [[ -n "\${INMO3D_TEST_PARTIDO:-}" ]]; then
+      # El recorrido se le cortó: arma varios pedazos y los numera por orden, no por tamaño.
+      echo 3 > "$out/0/cuantas.txt"
+      mkdir -p "$out/1"; : > "$out/1/cameras.bin"; echo "$n" > "$out/1/cuantas.txt"
+    else
+      echo "$n" > "$out/0/cuantas.txt"
+    fi ;;
+  image_undistorter)
+    inp="$(arg --input_path "$@")"; out="$(arg --output_path "$@")"
+    mkdir -p "$out/sparse"; : > "$out/sparse/cameras.bin"; : > "$out/sparse/images.bin"
+    [[ -f "$inp/cuantas.txt" ]] && cp "$inp/cuantas.txt" "$out/sparse/cuantas.txt" ;;
+  model_analyzer)
+    ruta="$(arg --path "$@")"
+    [[ -d "$ruta" ]] || { echo "ERROR: modelo inexistente" >&2; exit 1; }
+    if [[ -f "$ruta/cuantas.txt" ]]; then echo "Images: $(cat "$ruta/cuantas.txt")"
+    else echo "Images: \${INMO3D_TEST_REG1:-25}"; fi ;;
 esac
 exit 0
 `;
@@ -84,23 +125,28 @@ test('el pipeline llega al .sog con un COLMAP sin soporte de GPU', async () => {
     assert.match(stdout, /sin soporte de GPU/, 'y avisar que cae a CPU');
     // Si el modelo no quedó en sparse/0, model_analyzer falla y acá aparecería un "?".
     assert.match(stdout, /Fotos ubicadas en el modelo: 25 de 25/, 'y dejar el modelo donde se lo busca');
+    assert.doesNotMatch(stdout, /Intento 2/, 'si el primer intento ubicó todo, no insiste al pedo');
     assert.ok(base);
 });
 
-test('con medio modelo afuera corta antes de entrenar', async () => {
-    // COLMAP puede terminar con código 0 habiendo ubicado cuatro fotos de veinticinco: arma
-    // lo que puede y descarta el resto sin quejarse. Entrenar eso son horas para nada.
+test('con medio modelo afuera insiste, y termina el .sog igual', async () => {
+    // COLMAP puede terminar con código 0 habiendo ubicado cuatro tomas de veinticinco: arma lo
+    // que puede y descarta el resto sin quejarse. Frenar ahí sería devolverle el problema a
+    // quien filmó, que no va a volver a filmar. Se afloja y se reintenta; si aun así entra poco,
+    // se entrena con eso: media casa en 3D vale más que un cartel de error.
     const { bin, fotos, salida } = await preparar();
-    await assert.rejects(
-        correr('bash', [
-            path.join(RAIZ, 'pipeline', 'reconstruct.sh'),
-            '--photos', fotos, '--out', salida, '--sfm', 'colmap'
-        ], { cwd: RAIZ, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, INMO3D_TEST_REGISTRADAS: '4' } }),
-        (e) => {
-            assert.match(e.stderr, /ubicar 4 de 25/, 'tendría que decir cuántas entraron');
-            assert.doesNotMatch(e.stdout, /::step:entrenando/, 'y no llegar nunca a entrenar');
-            return true;
-        });
+    const { stdout } = await correr('bash', [
+        path.join(RAIZ, 'pipeline', 'reconstruct.sh'),
+        '--photos', fotos, '--out', salida, '--sfm', 'colmap'
+    ], { cwd: RAIZ, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, INMO3D_TEST_REG1: '4' } });
+
+    await access(path.join(salida, 'model.sog'));
+    assert.match(stdout, /Intento 3/, 'tendría que agotar los reintentos antes de conformarse');
+    assert.match(stdout, /mapper opciones:.*--Mapper\.abs_pose_min_num_inliers 10/,
+        'y aflojarle de verdad al mapper, no sólo reintentar lo mismo');
+    assert.match(stdout, /Fotos ubicadas en el modelo: 4 de 25/, 'y decir con cuánto se quedó');
+    assert.match(stdout, /Parte del recorrido no se pudo enganchar/, 'avisando de la cobertura');
+    assert.match(stdout, /::step:listo/, 'pero llegando hasta el final');
 });
 
 test('sin fotos suficientes falla temprano y lo dice', async () => {
@@ -111,4 +157,63 @@ test('sin fotos suficientes falla temprano y lo dice', async () => {
         correr('bash', [path.join(RAIZ, 'pipeline', 'reconstruct.sh'), '--photos', vacio, '--out', salida],
             { cwd: RAIZ, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } }),
         e => /al menos 20 fotos/.test(e.stderr));
+});
+
+test('si aflojando entran más tomas, se queda con ese intento y para ahí', async () => {
+    // El primer intento ubica 4 de 25 y el segundo 20: la escalada tiene que llegar al segundo
+    // y frenar ahí, sin gastar el tercero de gusto.
+    const { bin, fotos, salida } = await preparar();
+    const { stdout } = await correr('bash', [
+        path.join(RAIZ, 'pipeline', 'reconstruct.sh'),
+        '--photos', fotos, '--out', salida, '--sfm', 'colmap'
+    ], { cwd: RAIZ,
+        env: { ...process.env,
+            PATH: `${bin}:${process.env.PATH}`,
+            INMO3D_TEST_REG1: '4',
+            INMO3D_TEST_REG2: '20' } });
+
+    assert.match(stdout, /Intento 1: 4 de 25/, 'el primero se queda corto');
+    assert.match(stdout, /Intento 2: 20 de 25/, 'el segundo rescata el resto');
+    assert.doesNotMatch(stdout, /Intento 3/, 'y con eso alcanza: no sigue insistiendo');
+    await access(path.join(salida, 'model.sog'));
+});
+
+test('se queda con el mejor intento, aunque el último salga peor', async () => {
+    // Aflojar no siempre mejora: el tercer intento puede ubicar menos que el segundo. Lo que
+    // se entrena tiene que ser el mejor modelo que se consiguió, no el último que se probó.
+    const { bin, fotos, salida } = await preparar();
+    const { stdout } = await correr('bash', [
+        path.join(RAIZ, 'pipeline', 'reconstruct.sh'),
+        '--photos', fotos, '--out', salida, '--sfm', 'colmap'
+    ], { cwd: RAIZ,
+        env: { ...process.env,
+            PATH: `${bin}:${process.env.PATH}`,
+            INMO3D_TEST_REG1: '4',
+            INMO3D_TEST_REG2: '12',
+            INMO3D_TEST_REG3: '2' } });
+
+    assert.match(stdout, /Intento 3: 2 de 25/, 'prueba los tres porque ninguno alcanza la meta');
+    assert.match(stdout, /Fotos ubicadas en el modelo: 12 de 25/, 'pero entrena con el mejor');
+    await access(path.join(salida, 'model.sog'));
+});
+
+test('cuando el recorrido se parte en pedazos, agarra el más grande', async () => {
+    // COLMAP numera los pedazos por orden de armado: el 0 es el primero que consiguió cerrar,
+    // que bien puede ser el más chico. Quedarse con ese es tirar la mayor parte de la casa.
+    const { bin, fotos, salida } = await preparar();
+    const { stdout } = await correr('bash', [
+        path.join(RAIZ, 'pipeline', 'reconstruct.sh'),
+        '--photos', fotos, '--out', salida, '--sfm', 'colmap'
+    ], {
+        cwd: RAIZ,
+        env: {
+            ...process.env,
+            PATH: `${bin}:${process.env.PATH}`,
+            INMO3D_TEST_PARTIDO: '1',
+            INMO3D_TEST_REG1: '18'
+        }
+    });
+
+    assert.match(stdout, /Fotos ubicadas en el modelo: 18 de 25/, 'el pedazo grande, no el primero');
+    await access(path.join(salida, 'model.sog'));
 });

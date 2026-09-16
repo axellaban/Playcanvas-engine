@@ -201,8 +201,8 @@ function sectionPhotos(prop, save) {
                 h('li', {}, h('b', {}, '1080p, 30 fps.'), ' Grabar en 4K no mejora nada: los cuadros se ' +
                     'reducen a 1800 px igual, y el archivo pesa cuatro veces más. En iPhone: ' +
                     'Ajustes → Cámara → Grabar video → 1080p HD/30 fps.'),
-                h('li', {}, h('b', {}, '1 a 2 minutos por ambiente.'), ' Más largo no suma: se toman ' +
-                    '80 cuadros igual, sólo tarda más en subir.'),
+                h('li', {}, h('b', {}, '1 a 2 minutos por ambiente.'), ' De ahí para arriba suma poco, y ' +
+                    'tarda bastante más en subir y en procesarse.'),
                 h('li', {}, h('b', {}, 'Caminá despacio'), ', sin giros bruscos, y no saques de cuadro de ' +
                     'golpe lo que venías mostrando: cada momento tiene que compartir buena parte con el ' +
                     'anterior. Así es como se enganchan entre sí para armar el 3D.'),

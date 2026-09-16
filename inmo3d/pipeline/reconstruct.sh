@@ -15,7 +15,7 @@ PHOTOS=""; OUT=""; WORK=""
 SFM="${INMO3D_SFM:-glomap}"
 TRAINER="${INMO3D_TRAINER:-brush}"
 STEPS="${INMO3D_STEPS:-15000}"
-MATCHER="${INMO3D_MATCHER:-exhaustive}"   # exhaustive (pocas fotos) | sequential (video/ráfaga)
+MATCHER="${INMO3D_MATCHER:-}"             # vacío: lo decide la cantidad de fotos
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,10 +37,37 @@ mkdir -p "$OUT" "$WORK"
 have() { command -v "$1" >/dev/null 2>&1; }
 die()  { echo "ERROR: $*" >&2; exit 1; }
 
+# Cuántas fotos ubicó un modelo; cero si esa carpeta no es un modelo.
+cuantas() {
+  local n
+  n=$(colmap model_analyzer --path "$1" 2>&1 |
+      sed -n 's/.*[Ii]mages: *\([0-9][0-9]*\).*/\1/p' | head -1 || true)
+  echo "${n:-0}"
+}
+
+# Cuando el recorrido se le corta, COLMAP deja varios modelos sueltos (0, 1, 2…) en vez de
+# uno. Agarrar el 0 sin mirar es quedarse con el primero que armó, que no es el más grande.
+mejor_modelo() {
+  local dir mejor="" n=0 c
+  for dir in "$1"/*/; do
+    [[ -f "${dir}cameras.bin" || -f "${dir}cameras.txt" ]] || continue
+    c=$(cuantas "${dir%/}")
+    if [[ "$c" -gt "$n" ]]; then n=$c; mejor="${dir%/}"; fi
+  done
+  echo "$mejor"
+}
+
 echo "::step:preparando"
 N=$(find "$PHOTOS" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | wc -l)
 echo "Fotos encontradas: $N"
 [[ "$N" -ge 20 ]] || die "Hacen falta al menos 20 fotos (tenés $N)."
+# Comparar todas las tomas contra todas es lo que más engancha, pero crece al cuadrado y con
+# muchas fotos se vuelve eterno. Ahí el orden del video es información gratis: se comparan las
+# vecinas más saltos cada vez más largos, que es lo que reencuentra un ambiente ya visitado.
+if [[ -z "$MATCHER" ]]; then
+  if [[ "$N" -le 200 ]]; then MATCHER=exhaustive; else MATCHER=sequential; fi
+fi
+
 have colmap || die "Falta COLMAP. Instalalo (brew install colmap / apt install colmap) o usá pipeline/Dockerfile."
 
 # Qué sabe hacer este COLMAP: se lo preguntamos al binario en vez de suponerlo. El de
@@ -70,6 +97,11 @@ fi
 OPC_EXTRAER="$(si_acepta "$AYUDA_EXTRAER" --SiftExtraction.use_gpu "$INMO3D_GPU")"
 OPC_EMPAREJAR="$(si_acepta "$AYUDA_EMPAREJAR" --SiftMatching.use_gpu "$INMO3D_GPU")"
 OPC_EMPAREJAR="$OPC_EMPAREJAR $(si_acepta "$AYUDA_EMPAREJAR" --SiftMatching.guided_matching 1)"
+OPC_EMPAREJAR="$OPC_EMPAREJAR $(si_acepta "$AYUDA_EMPAREJAR" --SiftMatching.min_num_inliers 10)"
+if [[ "$MATCHER" == sequential ]]; then
+  OPC_EMPAREJAR="$OPC_EMPAREJAR $(si_acepta "$AYUDA_EMPAREJAR" --SequentialMatching.overlap 20)"
+  OPC_EMPAREJAR="$OPC_EMPAREJAR $(si_acepta "$AYUDA_EMPAREJAR" --SequentialMatching.quadratic_overlap 1)"
+fi
 
 # Cuadros sacados de un video son material difícil: mucho menos detalle que una foto sacada
 # a propósito, y la cámara se mueve entre uno y otro. Estas dos opciones hacen que la huella
@@ -103,18 +135,47 @@ if [[ ! -d "$PROJECT/sparse/0" ]]; then
 
   colmap "${MATCHER}_matcher" --database_path "$DB" $OPC_EMPAREJAR
 
+  MODELO=""; UBICADAS=0
   if [[ "$SFM" == "glomap" ]] && have glomap; then
     # GLOMAP resuelve la estructura global: mismo resultado que COLMAP pero mucho más rápido.
     glomap mapper --database_path "$DB" --image_path "$PHOTOS" --output_path "$SPARSE"
+    MODELO="$(mejor_modelo "$SPARSE")"; UBICADAS=$(cuantas "$MODELO")
   else
     [[ "$SFM" == "glomap" ]] && echo "GLOMAP no está instalado: sigo con el mapper de COLMAP."
-    colmap mapper --database_path "$DB" --image_path "$PHOTOS" --output_path "$SPARSE" $OPC_MAPPER
+    # Armar el modelo es la parte barata —segundos, contra las horas del entrenamiento— y es
+    # la que decide cuánta casa entra: casi todo depende de cuánta evidencia se le exige a una
+    # toma para darla por buena. Si con lo normal queda medio recorrido afuera, se prueba otra
+    # vez aflojando, y nos quedamos con el mejor intento. Quien filmó no vuelve a filmar: el
+    # video es el que es y hay que sacarle lo que tenga, aunque salga apenas menos preciso.
+    META=$(( N * 7 / 10 ))
+    for NIVEL in 1 2 3; do
+      case "$NIVEL" in
+        1) AFLOJE="" ;;
+        2) AFLOJE="$(si_acepta "$AYUDA_MAPPER" --Mapper.init_min_num_inliers 30)"
+           AFLOJE="$AFLOJE $(si_acepta "$AYUDA_MAPPER" --Mapper.abs_pose_min_num_inliers 10)"
+           AFLOJE="$AFLOJE $(si_acepta "$AYUDA_MAPPER" --Mapper.min_num_matches 8)" ;;
+        3) AFLOJE="$(si_acepta "$AYUDA_MAPPER" --Mapper.init_min_num_inliers 15)"
+           AFLOJE="$AFLOJE $(si_acepta "$AYUDA_MAPPER" --Mapper.abs_pose_min_num_inliers 8)"
+           AFLOJE="$AFLOJE $(si_acepta "$AYUDA_MAPPER" --Mapper.min_num_matches 5)"
+           AFLOJE="$AFLOJE $(si_acepta "$AYUDA_MAPPER" --Mapper.filter_max_reproj_error 8)"
+           AFLOJE="$AFLOJE $(si_acepta "$AYUDA_MAPPER" --Mapper.min_model_size 5)" ;;
+      esac
+      TANDA="$SPARSE/intento-$NIVEL"; mkdir -p "$TANDA"
+      # Que un intento falle no es el final: queda el anterior, y todavía hay otro por probar.
+      colmap mapper --database_path "$DB" --image_path "$PHOTOS" \
+        --output_path "$TANDA" $OPC_MAPPER $AFLOJE || true
+      CANDIDATO="$(mejor_modelo "$TANDA")"; CUANTAS=$(cuantas "$CANDIDATO")
+      echo "Intento $NIVEL: $CUANTAS de $N tomas ubicadas."
+      if [[ "$CUANTAS" -gt "$UBICADAS" ]]; then UBICADAS=$CUANTAS; MODELO="$CANDIDATO"; fi
+      if [[ "$UBICADAS" -ge "$META" ]]; then break; fi
+    done
   fi
-  [[ -d "$SPARSE/0" ]] || die "SfM falló: no se reconstruyó ninguna pose. Suele ser falta de solape entre fotos."
+  [[ -n "$MODELO" ]] || die "COLMAP no pudo ubicar ni una sola toma. Pasa cuando el video quedó \
+entero movido, a oscuras, o es de algo sin relieve como una pared lisa."
 
   # Enderezamos la distorsión del lente: los entrenadores esperan cámaras PINHOLE.
   mkdir -p "$PROJECT"
-  colmap image_undistorter --image_path "$PHOTOS" --input_path "$SPARSE/0" \
+  colmap image_undistorter --image_path "$PHOTOS" --input_path "$MODELO" \
     --output_path "$PROJECT" --output_type COLMAP
 
   # image_undistorter deja el modelo suelto en project/sparse, pero todo lo que viene
@@ -130,22 +191,14 @@ else
   echo "Reutilizo el SfM ya calculado en $PROJECT"
 fi
 
-# Cuántas fotos entraron de verdad en el modelo. Que COLMAP termine bien no quiere decir que
-# haya reconstruido la casa: si las tomas no se enganchan entre sí arma un pedacito con las
-# que pudo y descarta el resto, sin fallar. Ese número es el que decide si vale la pena
-# entrenar, y conviene mirarlo ahora y no dentro de dos horas.
-REGISTRADAS=$(colmap model_analyzer --path "$PROJECT/sparse/0" 2>&1 |
-  sed -n 's/.*[Ii]mages: *\([0-9][0-9]*\).*/\1/p' | head -1 || true)
-echo "Fotos ubicadas en el modelo: ${REGISTRADAS:-?} de $N"
-
-MINIMO=$(( N / 2 ))
-[[ "$MINIMO" -ge 12 ]] || MINIMO=12
-if [[ -n "$REGISTRADAS" ]] && [[ "$REGISTRADAS" -lt "$MINIMO" ]]; then
-  die "Sólo pude ubicar $REGISTRADAS de $N tomas: el recorrido saldría partido en pedazos sueltos, \
-así que corto acá en vez de entrenar dos horas al pedo. Casi siempre es cómo salió el video: caminá \
-más despacio y sin giros bruscos, que cada momento comparta buena parte de lo que se ve con el \
-anterior, y prendé todas las luces. Las paredes lisas y los ambientes oscuros no dejan puntos de \
-referencia para enganchar una toma con la siguiente."
+# Cuántas entraron de verdad. Que COLMAP termine bien no quiere decir que haya reconstruido la
+# casa entera: con lo que no pudo enganchar arma lo que puede y sigue. Se informa para que se
+# vea en el panel qué cobertura tiene el recorrido, pero no se frena por eso — el que filmó ya
+# no está, y media casa en 3D es infinitamente mejor que un cartel de error.
+REGISTRADAS=$(cuantas "$PROJECT/sparse/0")
+echo "Fotos ubicadas en el modelo: $REGISTRADAS de $N"
+if [[ "$REGISTRADAS" -lt $(( N / 2 )) ]]; then
+  echo "Parte del recorrido no se pudo enganchar: el 3D va a cubrir sólo eso. Sigo igual."
 fi
 
 # ------------------------------------------------------------------ 2. entrenamiento 3DGS

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { nitidez, elegir, opcionDesconocida } from '../tools/fotogramas.mjs';
+import { nitidez, elegir, opcionDesconocida, cuantosCuadros } from '../tools/fotogramas.mjs';
 
 const ANCHO = 160, ALTO = 120;
 
@@ -53,6 +53,14 @@ test('si el video entero está movido, devuelve algo igual', () => {
 test('un video corto entrega todos sus cuadros', () => {
     const elegidos = elegir([500, 480, 520], 80);
     assert.equal(elegidos.length, 3);
+});
+
+test('la cantidad de cuadros sale de cuánto dura el video', () => {
+    // Con una cifra fija, un video largo queda ralo: medio segundo de caminata entre toma y
+    // toma alcanza para que no compartan nada, y ahí es donde se parte la reconstrucción.
+    assert.ok(cuantosCuadros(301) > 120, `50 s merecen más de 120 cuadros, no ${cuantosCuadros(301)}`);
+    assert.equal(cuantosCuadros(60), 60, 'pero un video corto no baja del piso');
+    assert.equal(cuantosCuadros(6000), 200, 'y uno larguísimo tiene techo: comparar crece al cuadrado');
 });
 
 test('reconoce cuando ffmpeg no entiende una opción', () => {

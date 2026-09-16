@@ -55,6 +55,18 @@ export function elegir(puntajes, objetivo = 80) {
     return limpios.length >= Math.min(20, elegidos.length) ? limpios : elegidos;
 }
 
+/**
+ * Cuántos cuadros sacarle a este video. Lo que rompe una reconstrucción no es que un cuadro
+ * salga mediocre: es el salto entre uno y el siguiente. Si la cámara se movió de más entre
+ * los dos no comparten nada, la cadena se corta ahí y todo lo que venía después queda suelto.
+ * Por eso el número sale de cuánto dura el video y no de una cifra fija: apuntamos a unos dos
+ * y medio por segundo, que aguanta que se camine rápido. El techo es porque comparar tomas
+ * entre sí crece al cuadrado; el piso, porque con menos no hay reconstrucción que valga.
+ */
+export function cuantosCuadros(muestras, fps = 6) {
+    return Math.max(60, Math.min(200, Math.round(muestras / fps * 2.5)));
+}
+
 const correr = (args, alSalir) => new Promise((resolve, reject) => {
     const hijo = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let error = '';
@@ -110,11 +122,11 @@ export async function extraer(video, indices, destino, { fps = 6, ancho = 1800 }
 }
 
 /** Todo junto: del video a una carpeta con las mejores fotos. */
-export async function desdeVideo(video, destino, { objetivo = 80, fps = 6, alAvanzar } = {}) {
+export async function desdeVideo(video, destino, { objetivo, fps = 6, alAvanzar } = {}) {
     alAvanzar?.('midiendo nitidez de los cuadros');
     const puntajes = await medir(video, fps);
     if (!puntajes.length) throw new Error('No pude leer el video. ¿Está completo?');
-    const elegidos = elegir(puntajes, objetivo);
+    const elegidos = elegir(puntajes, objetivo ?? cuantosCuadros(puntajes.length, fps));
     alAvanzar?.(`${elegidos.length} cuadros elegidos de ${puntajes.length}`);
     await extraer(video, elegidos, destino, { fps });
     return { total: puntajes.length, elegidos: elegidos.length };
