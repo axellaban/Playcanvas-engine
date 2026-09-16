@@ -105,8 +105,11 @@ else
     brush)
       # https://github.com/ArthurBrussee/brush - Rust + wgpu: anda en NVIDIA, AMD, Apple y hasta en el navegador.
       have brush || die "Falta 'brush'. Bajalo de https://github.com/ArthurBrussee/brush/releases o usá --trainer opensplat."
-      echo "+ brush $PROJECT --total-steps $STEPS --export-path $OUT --export-name model.ply"
-      brush "$PROJECT" --total-steps "$STEPS" --export-path "$OUT" --export-name "model.ply"
+      # --export-every igual a --total-steps: una sola exportación, la final. Por defecto
+      # brush exporta cada 5000 pasos, y en una máquina modesta eso es tiempo regalado.
+      echo "+ brush --total-steps $STEPS --export-path $OUT $PROJECT"
+      brush --total-steps "$STEPS" --export-every "$STEPS" \
+        --export-path "$OUT" --export-name "model.ply" "$PROJECT"
       ;;
     opensplat)
       # https://github.com/pierotofy/OpenSplat - C++, corre con CUDA, ROCm, Metal o CPU.
@@ -127,7 +130,14 @@ else
   esac
 fi
 
-[[ -f "$PLY" ]] || die "El entrenamiento no dejó $PLY."
+# Cada entrenador nombra su salida a su manera (brush usa export_{iter}.ply si no se le
+# fija el nombre). Si no está el que esperamos, tomamos el .ply más nuevo que haya dejado.
+if [[ ! -f "$PLY" ]]; then
+  ULTIMO=$(ls -t "$OUT"/*.ply 2>/dev/null | head -1)
+  [[ -n "$ULTIMO" ]] && { echo "Uso el .ply que dejó el entrenador: $(basename "$ULTIMO")"; mv "$ULTIMO" "$PLY"; }
+fi
+
+[[ -f "$PLY" ]] || die "El entrenamiento no dejó ningún .ply en $OUT."
 echo "PLY generado: $(du -h "$PLY" | cut -f1)"
 
 # ------------------------------------------------------------------ 3. compresión a .sog
