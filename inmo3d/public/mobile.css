@@ -1,0 +1,580 @@
+/* Inmo3D — mobile refinement layer
+   Loaded after the base and product styles so mobile behavior stays isolated and easy to revert. */
+
+@media (max-width: 860px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* -------------------------------------------------------------- admin */
+  body:not(:has(.viewer)) {
+    min-height: 100dvh;
+    background: var(--product-bg, #f6f6f3);
+  }
+
+  body:not(:has(.viewer)) header.top {
+    min-height: 58px;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  body:not(:has(.viewer)) .brand {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 1.05rem;
+  }
+
+  body:not(:has(.viewer)) #new-prop,
+  body:not(:has(.viewer)) #logout {
+    flex: 0 0 auto;
+    min-height: 40px;
+    white-space: nowrap;
+    padding-inline: 12px;
+  }
+
+  body:not(:has(.viewer)) #logout {
+    padding-inline: 9px;
+    font-size: .78rem;
+  }
+
+  body:not(:has(.viewer)) .wrap {
+    width: 100%;
+    max-width: none;
+    padding: 18px 12px calc(88px + env(safe-area-inset-bottom));
+  }
+
+  body:not(:has(.viewer)) h1 {
+    font-size: 1.45rem;
+    line-height: 1.12;
+  }
+
+  body:not(:has(.viewer)) h2 {
+    font-size: 1.04rem;
+  }
+
+  body:not(:has(.viewer)) .grid {
+    gap: 12px;
+  }
+
+  body:not(:has(.viewer)) .card {
+    padding: 16px;
+    border-radius: 14px;
+    box-shadow: 0 1px 2px rgba(22, 24, 26, .04);
+  }
+
+  /* Dashboard: compact horizontal cards instead of large stacked posters. */
+  body:not(:has(.viewer)) .grid.props {
+    gap: 10px;
+  }
+
+  body:not(:has(.viewer)) .grid.props article.card {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    grid-template-rows: auto auto auto 1fr;
+    column-gap: 12px;
+    row-gap: 2px;
+    padding: 10px !important;
+    min-height: 112px;
+  }
+
+  body:not(:has(.viewer)) .grid.props article.card .thumb {
+    grid-column: 1;
+    grid-row: 1 / 5;
+    width: 104px;
+    height: 100%;
+    min-height: 92px;
+    aspect-ratio: auto;
+    border-radius: 11px;
+  }
+
+  body:not(:has(.viewer)) .grid.props article.card > h3,
+  body:not(:has(.viewer)) .grid.props article.card > small,
+  body:not(:has(.viewer)) .grid.props article.card > div:not(.thumb) {
+    grid-column: 2;
+    min-width: 0;
+  }
+
+  body:not(:has(.viewer)) .grid.props article.card > h3 {
+    margin: 1px 0 0 !important;
+    font-size: .98rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  body:not(:has(.viewer)) .grid.props article.card > small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  body:not(:has(.viewer)) .grid.props article.card > div:not(.thumb):not(.chips) {
+    margin: 4px 0 !important;
+    font-size: .92rem;
+  }
+
+  body:not(:has(.viewer)) .grid.props article.card .chips {
+    align-self: end;
+    gap: 4px;
+    overflow: hidden;
+    flex-wrap: nowrap;
+  }
+
+  body:not(:has(.viewer)) .grid.props article.card .chip {
+    font-size: .69rem;
+    padding: 3px 7px;
+    white-space: nowrap;
+  }
+
+  /* Detail header: title gets its own line, actions stay thumb-friendly. */
+  body:not(:has(.viewer)) #view > div:first-child:has(button) {
+    align-items: center !important;
+    gap: 8px !important;
+    margin-bottom: 14px !important;
+  }
+
+  body:not(:has(.viewer)) #view > div:first-child:has(button) h1 {
+    flex: 1 0 100% !important;
+    order: -1;
+    margin-bottom: 3px !important;
+  }
+
+  body:not(:has(.viewer)) #view > div:first-child:has(a.btn.primary) a.btn.primary {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 44px;
+  }
+
+  /* Flatten the desktop columns on mobile and order the workflow naturally. */
+  body:not(:has(.viewer)) .grid.two {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  body:not(:has(.viewer)) .grid.two > .grid {
+    display: contents;
+  }
+
+  body:not(:has(.viewer)) .grid.two > .grid:first-child > .card:nth-child(1) { order: 1; }
+  body:not(:has(.viewer)) .grid.two > .grid:first-child > .card:nth-child(2) { order: 2; }
+  body:not(:has(.viewer)) .grid.two > .grid:nth-child(2) > .card:nth-child(1) { order: 3; }
+  body:not(:has(.viewer)) .grid.two > .grid:nth-child(2) > .card:nth-child(2) { order: 4; }
+  body:not(:has(.viewer)) .grid.two > .grid:first-child > .card:nth-child(3) { order: 5; }
+
+  /* Forms: compact, but never cramped. */
+  body:not(:has(.viewer)) .row,
+  body:not(:has(.viewer)) .row3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  body:not(:has(.viewer)) .row3 > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  body:not(:has(.viewer)) label {
+    margin-top: 11px;
+    margin-bottom: 5px;
+  }
+
+  body:not(:has(.viewer)) input,
+  body:not(:has(.viewer)) select,
+  body:not(:has(.viewer)) textarea {
+    min-height: 46px;
+    padding: 10px 11px;
+    font-size: 16px;
+  }
+
+  body:not(:has(.viewer)) textarea {
+    min-height: 96px;
+  }
+
+  body:not(:has(.viewer)) details > summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* Capture area: video is the primary mobile action, gallery/camera are secondary. */
+  body:not(:has(.viewer)) .drop {
+    padding: 16px !important;
+    border-width: 1px;
+    border-radius: 13px;
+  }
+
+  body:not(:has(.viewer)) .drop > div:first-child {
+    font-size: 1.35rem !important;
+  }
+
+  body:not(:has(.viewer)) .drop .drag-hint {
+    display: none !important;
+  }
+
+  body:not(:has(.viewer)) .drop > div:nth-of-type(3) {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px !important;
+    margin: 10px 0 !important;
+  }
+
+  body:not(:has(.viewer)) .drop > div:nth-of-type(3) > button {
+    width: 100%;
+    min-height: 46px;
+    justify-content: center;
+    margin: 0;
+  }
+
+  body:not(:has(.viewer)) .drop > div:nth-of-type(3) > button:first-child {
+    grid-column: 1 / -1;
+  }
+
+  body:not(:has(.viewer)) .drop details {
+    margin-top: 12px !important;
+    padding-top: 8px;
+    border-top: 1px solid var(--product-line, #e4e5df);
+  }
+
+  body:not(:has(.viewer)) .photos {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  body:not(:has(.viewer)) .photos img {
+    border-radius: 9px;
+  }
+
+  body:not(:has(.viewer)) .photos button {
+    opacity: 1;
+    min-width: 30px;
+    min-height: 30px;
+    top: 3px;
+    right: 3px;
+  }
+
+  /* Scene controls: avoid tiny horizontal clusters and technical text overflow. */
+  body:not(:has(.viewer)) .grid.two > .grid:first-child > .card:nth-child(2) > div:nth-of-type(2) {
+    display: grid !important;
+    grid-template-columns: 1fr;
+    gap: 8px !important;
+  }
+
+  body:not(:has(.viewer)) .grid.two > .grid:first-child > .card:nth-child(2) > div:nth-of-type(2) .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  body:not(:has(.viewer)) .grid.two > .grid:first-child > .card:nth-child(2) > div:first-of-type small.dim {
+    display: none;
+  }
+
+  body:not(:has(.viewer)) .grid.two > .grid:first-child > .card:nth-child(2) > label + div,
+  body:not(:has(.viewer)) .grid.two > .grid:first-child > .card:nth-child(3) > label + div {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: 7px !important;
+  }
+
+  body:not(:has(.viewer)) .grid.two > .grid:first-child > .card:nth-child(2) > label + div .btn,
+  body:not(:has(.viewer)) .grid.two > .grid:first-child > .card:nth-child(3) > label + div .btn {
+    min-height: 46px;
+  }
+
+  body:not(:has(.viewer)) pre.log {
+    max-height: 170px;
+    font-size: .72rem;
+  }
+
+  /* AI actions and login actions become large touch targets. */
+  body:not(:has(.viewer)) .card.ai > div[style*="display: flex"],
+  body:not(:has(.viewer)) form {
+    gap: 8px;
+  }
+
+  body:not(:has(.viewer)) .card.ai > div[style*="display: flex"] .btn {
+    flex: 1 1 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
+
+  body:not(:has(.viewer)) form .btn.primary {
+    min-height: 46px;
+    margin-top: 8px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  body:not(:has(.viewer)) .toast {
+    left: 12px;
+    right: 12px;
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    width: auto;
+    max-width: none;
+    transform: none;
+    padding: 11px 13px;
+  }
+
+  @keyframes rise-mobile {
+    from { opacity: 0; transform: translateY(10px); }
+  }
+
+  body:not(:has(.viewer)) .toast {
+    animation-name: rise-mobile;
+  }
+
+  /* -------------------------------------------------------------- 3D viewer */
+  body:has(.viewer),
+  body:has(.viewer) .viewer {
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+
+  body:has(.viewer) .viewer {
+    inset: 0;
+  }
+
+  body:has(.viewer) .panel-l,
+  body:has(.viewer) .panel-r {
+    inset: auto 0 0 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: min(74dvh, 720px) !important;
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+    border-radius: 22px 22px 0 0 !important;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body:has(.viewer) .panel-l::before,
+  body:has(.viewer) .panel-r::before {
+    width: 42px;
+    height: 4px;
+    margin-top: 9px;
+    background: rgba(255, 255, 255, .18);
+  }
+
+  body:has(.viewer) .panel-l section,
+  body:has(.viewer) .panel-r section {
+    padding: 14px 16px;
+  }
+
+  body:has(.viewer) .panel-l section:first-of-type,
+  body:has(.viewer) .panel-r section:first-of-type {
+    padding-top: 10px;
+  }
+
+  body:has(.viewer) .stops li {
+    min-height: 44px;
+    padding: 9px 8px;
+  }
+
+  body:has(.viewer) #minimap {
+    max-width: 230px;
+    margin: 8px auto 0;
+  }
+
+  body:has(.viewer) input,
+  body:has(.viewer) select,
+  body:has(.viewer) textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  body:has(.viewer) input[type="range"] {
+    min-height: 34px;
+  }
+
+  body:has(.viewer) .chat {
+    max-height: 180px;
+  }
+
+  body:has(.viewer) .hotspot {
+    width: 38px;
+    height: 38px;
+  }
+
+  body:has(.viewer) .hotspot::before {
+    width: 48px;
+    height: 48px;
+  }
+
+  /* Bottom toolbar behaves like a mobile navigation rail. Edge sheets stay reachable
+     while the middle tools can scroll horizontally. */
+  body:has(.viewer) .toolbar {
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100%;
+    max-width: none !important;
+    min-height: 64px;
+    transform: none !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    justify-content: flex-start !important;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom)) !important;
+    border-radius: 18px 18px 0 0 !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: 62px;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  body:has(.viewer) .toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  body:has(.viewer) .toolbar .btn {
+    flex: 0 0 auto;
+    min-width: 72px;
+    min-height: 48px;
+    padding: 8px 11px;
+    justify-content: center;
+    border-radius: 12px;
+    scroll-snap-align: center;
+    white-space: nowrap;
+  }
+
+  body:has(.viewer) .toolbar .sheet-toggle {
+    display: inline-flex;
+    min-width: 52px;
+    width: 52px;
+    font-size: 1rem;
+  }
+
+  body:has(.viewer) .toolbar .sheet-toggle:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 4;
+    background: #171b22;
+  }
+
+  body:has(.viewer) .toolbar .sheet-toggle:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 4;
+    background: #171b22;
+  }
+
+  body:has(.viewer) .toolbar .sheet-toggle.on {
+    background: #f27655;
+  }
+
+  body:has(.viewer) .toast {
+    left: 12px;
+    right: 12px;
+    bottom: calc(78px + env(safe-area-inset-bottom));
+    width: auto;
+    max-width: none;
+    transform: none;
+    text-align: left;
+  }
+
+  body:has(.viewer) .loader {
+    padding: 24px;
+  }
+
+  body:has(.viewer) #loader-text {
+    max-width: 28ch !important;
+    margin-inline: auto;
+    line-height: 1.45;
+  }
+}
+
+/* Very narrow phones: prioritize breathing room over two-column forms. */
+@media (max-width: 370px) {
+  body:not(:has(.viewer)) .row,
+  body:not(:has(.viewer)) .row3 {
+    grid-template-columns: 1fr;
+  }
+
+  body:not(:has(.viewer)) .row3 > :last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+
+  body:not(:has(.viewer)) .grid.props article.card {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+
+  body:not(:has(.viewer)) .grid.props article.card .thumb {
+    width: 88px;
+  }
+
+  body:has(.viewer) .toolbar .btn {
+    min-width: 66px;
+    padding-inline: 9px;
+  }
+}
+
+/* Mobile landscape: use side sheets so the 3D keeps vertical space. */
+@media (max-width: 860px) and (orientation: landscape) and (max-height: 560px) {
+  body:has(.viewer) .panel-l,
+  body:has(.viewer) .panel-r {
+    top: 8px !important;
+    bottom: 72px !important;
+    width: min(380px, 46vw) !important;
+    max-height: none !important;
+    padding-bottom: 8px;
+    border: 1px solid rgba(255, 255, 255, .11) !important;
+    border-radius: 16px !important;
+  }
+
+  body:has(.viewer) .panel-l {
+    left: 8px !important;
+    right: auto !important;
+    transform: translateX(-110%) !important;
+  }
+
+  body:has(.viewer) .panel-r {
+    left: auto !important;
+    right: 8px !important;
+    transform: translateX(110%) !important;
+  }
+
+  body:has(.viewer) .panel-l.open,
+  body:has(.viewer) .panel-r.open {
+    transform: none !important;
+  }
+
+  body:has(.viewer) .panel-l::before,
+  body:has(.viewer) .panel-r::before {
+    display: none;
+  }
+
+  body:has(.viewer) .toolbar {
+    left: 8px !important;
+    right: 8px !important;
+    bottom: 8px !important;
+    width: auto;
+    min-height: 54px;
+    padding: 5px !important;
+    border-radius: 15px !important;
+  }
+
+  body:has(.viewer) .toolbar .btn {
+    min-height: 42px;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  body:not(:has(.viewer)) article.card:hover,
+  body:not(:has(.viewer)) .btn:hover:not(:disabled),
+  body:has(.viewer) .btn:hover:not(:disabled),
+  body:has(.viewer) .hotspot:hover {
+    transform: none;
+  }
+}
