@@ -25,8 +25,10 @@ export async function worker() {
 export async function encolar(id, opciones = {}) {
     const prop = await store.getProperty(id);
     if (!prop) throw Object.assign(new Error('Propiedad inexistente.'), { status: 404 });
-    if (prop.photos.length < 20) {
-        throw new Error(`Con ${prop.photos.length} fotos no alcanza. Subí al menos 20 (lo ideal: 80-200).`);
+    if (!prop.video && prop.photos.length < 20) {
+        throw new Error(prop.photos.length ?
+            `Con ${prop.photos.length} fotos no alcanza. Subí al menos 20 (lo ideal: 80-200), o grabá un video del recorrido.` :
+            'Subí fotos (80-200) o grabá un video recorriendo el ambiente.');
     }
     if (prop.job?.status === 'pendiente' || prop.job?.status === 'corriendo') {
         throw new Error('Esta propiedad ya está en la cola.');
@@ -78,7 +80,8 @@ export async function tomar(nombreWorker) {
             id: prop.id,
             titulo: prop.meta.title,
             opciones: prop.job.opciones ?? {},
-            fotos: prop.photos.map(f => ({ file: f.file, url: f.url }))
+            fotos: prop.photos.map(f => ({ file: f.file, url: f.url })),
+            video: prop.video?.url ?? null
         };
     }
     return null;

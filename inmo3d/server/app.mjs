@@ -48,12 +48,12 @@ async function blobUploadToken(req, res) {
         request: req,
         onBeforeGenerateToken: async (pathname) => {
             requireAdmin(req);
-            if (!/^[a-z0-9-]+\/(?:photos\/[a-z0-9.-]+\.(?:jpe?g|png|webp)|splat\/[a-z0-9.-]+\.(?:sog|ply|spz))$/.test(pathname)) {
-                throw new Error('Ruta de subida inválida.');
-            }
+            const rutaValida = /^[a-z0-9-]+\/(?:photos\/[a-z0-9.-]+\.(?:jpe?g|png|webp)|splat\/[a-z0-9.-]+\.(?:sog|ply|spz)|video\/[a-z0-9.-]+\.(?:mp4|mov|m4v|webm))$/;
+            if (!rutaValida.test(pathname)) throw new Error('Ruta de subida inválida.');
             if (!await store.getProperty(pathname.split('/')[0])) throw new Error('Propiedad inexistente.');
             return {
-                allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/octet-stream'],
+                allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp',
+                    'video/mp4', 'video/quicktime', 'video/webm', 'application/octet-stream'],
                 addRandomSuffix: false,
                 allowOverwrite: true,
                 maximumSizeInBytes: 1024 * 1024 * 1024
@@ -166,6 +166,15 @@ export async function api(req, res, url) {
     }
 
     // ---- splat ya entrenado: archivo chico por acá, o URL pública / Blob por attach
+    if (action === 'video' && method === 'POST') {
+        const name = q.get('name') || 'recorrido.mp4';
+        const media = await store.putMedia(id, 'video', name, await readRaw(req, 64 * 1024 * 1024),
+            req.headers['content-type'] || 'video/mp4');
+        prop.video = media;
+        await store.saveProperty(prop);
+        return json(res, media, 201);
+    }
+
     if (action === 'splat' && method === 'POST') {
         const name = q.get('name') || 'model.sog';
         if (!/\.(?:sog|ply|spz|json)$/i.test(name)) {
@@ -198,6 +207,11 @@ export async function api(req, res, url) {
 
         const { kind, url: fileUrl, file, bytes } = body;
         if (!/^https?:\/\//.test(fileUrl || '')) return fail(res, 'Mandá una URL http(s) válida.');
+        if (kind === 'video') {
+            prop.video = { file: file || fileUrl.split('/').pop(), url: fileUrl, bytes: bytes ?? 0 };
+            await store.saveProperty(prop);
+            return json(res, { ok: true, video: prop.video }, 201);
+        }
         if (kind === 'splat') {
             if (!/\.(?:sog|ply|spz)(?:$|\?)/i.test(fileUrl)) {
                 return fail(res, 'La URL tiene que terminar en .sog, .ply o .spz.');

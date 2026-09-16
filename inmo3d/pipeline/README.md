@@ -13,6 +13,12 @@ fotos/*.jpg
    └─ @playcanvas/splat-transform                     (comprime → model.sog, 10-20x más liviano)
 ```
 
+## Desde un video
+
+El worker acepta un video en vez de fotos: extrae los cuadros con `tools/fotogramas.mjs`, que mide
+la nitidez de cada uno (varianza del laplaciano sobre una miniatura en gris) y conserva el mejor de
+cada tramo. Necesita `ffmpeg` instalado (`brew install ffmpeg`).
+
 ## Correrlo
 
 ```bash

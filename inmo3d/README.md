@@ -37,7 +37,21 @@ recorrer el visor completo antes de tener un escaneo real.
 
 ## El flujo real
 
-### 1. Sacar las fotos
+### 1. Capturar: video o fotos
+
+**Video** (lo cómodo): grabás 1-2 minutos caminando despacio por el ambiente y lo subís. El worker
+elige solo los cuadros nítidos: mide la varianza del laplaciano de cada uno y se queda con el mejor
+de cada tramo, descartando los movidos. Eso último es lo que hace que un video sirva — la mitad de
+los cuadros de un video caminando están movidos, y un cuadro movido no sólo no aporta: ensucia.
+
+Para grabar: caminá **despacio**, sin giros bruscos, bordeando el ambiente y apuntando al centro;
+después una vuelta desde el centro hacia afuera. Bloqueá foco y exposición antes de empezar.
+
+**Fotos** (lo que sale mejor): más trabajo, más calidad. Cada foto es nítida a propósito y a plena
+resolución, mientras que un cuadro de video siempre pierde algo por compresión y obturador lento.
+Si la propiedad es importante, andá por las fotos.
+
+### 1b. Si vas por las fotos
 
 Es el 80% del resultado final. Nada de lo que venga después arregla una captura pobre.
 

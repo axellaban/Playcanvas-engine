@@ -11,6 +11,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { desdeVideo } from './fotogramas.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -132,13 +133,31 @@ async function subir(trabajo, archivo) {
     return (await res.json()).url;
 }
 
+/** Baja el video y saca de ahí los cuadros nítidos, que hacen de fotos. */
+async function desdeElVideo(trabajo, dir) {
+    await fs.mkdir(dir, { recursive: true });
+    const destino = path.join(dir, '..', 'recorrido.mp4');
+    const res = await fetch(trabajo.video.startsWith('http') ? trabajo.video : `${BASE}${trabajo.video}`);
+    if (!res.ok) throw new Error(`No pude bajar el video (HTTP ${res.status})`);
+    await fs.writeFile(destino, Buffer.from(await res.arrayBuffer()));
+
+    const avisar = async (texto) => {
+        log(`  ${texto}`);
+        await api(`/jobs/${trabajo.id}`, { step: 'eligiendo cuadros', progress: 12, log: `${texto}\n` }).catch(() => {});
+    };
+    const { total, elegidos } = await desdeVideo(destino, dir, { alAvanzar: avisar });
+    log(`  ${elegidos} cuadros útiles de ${total}`);
+    return elegidos;
+}
+
 async function procesar(trabajo) {
     const base = await fs.mkdtemp(path.join(os.tmpdir(), `inmo3d-${trabajo.id}-`));
     const fotos = path.join(base, 'fotos');
     const salida = path.join(base, 'salida');
-    log(`▶ ${trabajo.titulo} (${trabajo.fotos.length} fotos)`);
+    log(`▶ ${trabajo.titulo} (${trabajo.video ? 'video' : `${trabajo.fotos.length} fotos`})`);
     try {
-        await bajarFotos(trabajo, fotos);
+        if (trabajo.video) await desdeElVideo(trabajo, fotos);
+        else await bajarFotos(trabajo, fotos);
         await reconstruir(trabajo, fotos, salida);
         const url = await subir(trabajo, path.join(salida, 'model.sog'));
         await api(`/jobs/${trabajo.id}`, { splatUrl: url, file: `${trabajo.id}/splat/model.sog` });

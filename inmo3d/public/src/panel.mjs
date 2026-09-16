@@ -148,17 +148,43 @@ function sectionPhotos(prop, save) {
         onchange: e => upload([...e.target.files])
     });
 
+    // El video es el camino cómodo: se graba caminando y el worker saca de ahí los
+    // cuadros nítidos. Las fotos dan mejor resultado, pero cuestan más de sacar.
+    const estadoVideo = h('div', { style: { fontSize: '.82rem', marginTop: '8px' } },
+        prop.video ? h('span.chip.ok', {}, `🎬 video cargado (${(prop.video.bytes / 1e6).toFixed(0)} MB)`) : '');
+    const fromVideo = h('input', {
+        type: 'file',
+        accept: 'video/*',
+        style: { display: 'none' },
+        onchange: async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            estadoVideo.replaceChildren(h('span.chip.warn', {}, `subiendo ${(file.size / 1e6).toFixed(0)} MB…`));
+            try {
+                const up = await putFile(prop.id, 'video', file);
+                prop.video = up;
+                estadoVideo.replaceChildren(h('span.chip.ok', {}, `🎬 video cargado (${(up.bytes / 1e6).toFixed(0)} MB)`));
+                toast('Video cargado. Ya podés reconstruir.');
+            } catch (err) {
+                estadoVideo.replaceChildren(h('span.chip.warn', {}, err.message));
+            }
+        }
+    });
+
     const drop = h('div.drop', {},
-        h('div', { style: { fontSize: '1.6rem' } }, '📷'),
+        h('div', { style: { fontSize: '1.6rem' } }, '🎬'),
         h('div.drag-hint', {}, h('b', {}, 'Arrastrá las fotos acá')),
         h('div', {
             style: { display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap', margin: '10px 0' }
         },
+        h('button.btn.sm.primary', { onclick: () => fromVideo.click() }, '🎬 Subir un video'),
         h('button.btn.sm', { onclick: () => fromGallery.click() }, '🖼 Elegir del carrete'),
         h('button.btn.sm', { onclick: () => fromCamera.click() }, '📷 Sacar una foto')),
-        fromCamera, fromGallery,
-        h('div', {}, h('small', {}, 'Lo ideal: 80-200 fotos con 60-80% de solape. ' +
-            'Sacalas con la app de cámara y después elegilas todas juntas del carrete.')));
+        fromCamera, fromGallery, fromVideo,
+        estadoVideo,
+        h('div', { style: { marginTop: '8px' } }, h('small', {},
+            'Lo más cómodo: grabá un video caminando despacio por el ambiente, 1-2 minutos. ' +
+            'De ahí se eligen solos los cuadros nítidos. Con fotos sale mejor, pero son 80-200 tomas.')));
 
     drop.addEventListener('dragover', (e) => {
         e.preventDefault();

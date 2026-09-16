@@ -38,6 +38,7 @@ const defaults = (id, meta = {}) => ({
         ...meta
     },
     photos: [],                    // { file, url, bytes, addedAt }
+    video: null,                   // { file, url, bytes } — alternativa a las fotos
     scene: {
         splat: null,               // clave del archivo
         splatUrl: null,            // URL con la que lo pide el visor

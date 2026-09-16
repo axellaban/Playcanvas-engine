@@ -45,10 +45,13 @@ test('cola de reconstrucción: de la web al worker y de vuelta', async (t) => {
     const { data: prop } = await api('/properties', { meta: { title: 'Casa en cola' } });
     const id = prop.id;
 
-    await t.test('no encola sin fotos suficientes', async () => {
+    await t.test('no encola sin material suficiente', async () => {
         const r = await api(`/properties/${id}/reconstruct`, {});
         assert.equal(r.status, 400);
-        assert.match(r.data.error, /al menos 20/);
+        // Sin fotos ni video no hay con qué reconstruir, y el aviso tiene que nombrar
+        // los dos caminos disponibles.
+        assert.match(r.data.error, /foto/i);
+        assert.match(r.data.error, /video/i);
     });
 
     // 20 fotos mínimas para que el pedido sea válido.
@@ -110,4 +113,48 @@ test('cola de reconstrucción: de la web al worker y de vuelta', async (t) => {
             lista.scene.splatUrl : `${base}${lista.scene.splatUrl}`);
         assert.equal(await sog.text(), 'sog-de-prueba', 'el .sog subido es el que generó el pipeline');
     });
+});
+
+// Con un video no hacen falta las 20 fotos: los cuadros salen de ahí.
+test('un video alcanza para encolar', async (t) => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'inmo3d-video-'));
+    const puerto = 3700 + Math.floor(Math.random() * 200);
+    const base = `http://127.0.0.1:${puerto}`;
+    const server = spawn('node', [path.join(ROOT, 'server', 'index.mjs')], {
+        env: { ...process.env, PORT: String(puerto), INMO3D_DATA: dataDir, VERCEL: '', INMO3D_ADMIN_TOKEN: '' },
+        stdio: 'ignore'
+    });
+    t.after(async () => {
+        server.kill();
+        await fs.rm(dataDir, { recursive: true, force: true });
+    });
+    for (let i = 0; i < 40; i++) {
+        if (await fetch(`${base}/api/config`).then(() => true, () => false)) break;
+        await new Promise((r) => {
+            setTimeout(r, 250);
+        });
+    }
+
+    const creada = await fetch(`${base}/api/properties`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ meta: { title: 'Casa filmada' } })
+    });
+    const { id } = await creada.json();
+
+    const subido = await fetch(`${base}/api/properties/${id}/video?name=recorrido.mp4`, {
+        method: 'POST', headers: { 'content-type': 'video/mp4' }, body: Buffer.from('no-es-un-video-real')
+    });
+    assert.equal(subido.status, 201);
+
+    const encolado = await fetch(`${base}/api/properties/${id}/reconstruct`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}'
+    });
+    assert.equal(encolado.status, 202, 'con video no se piden 20 fotos');
+
+    const tomado = await fetch(`${base}/api/jobs/next`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ worker: 'test' })
+    });
+    const trabajo = await tomado.json();
+    assert.ok(trabajo.video, 'el trabajo le pasa el video al worker');
 });

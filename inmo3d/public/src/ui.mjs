@@ -150,7 +150,7 @@ export async function putFile(id, kind, file, name = file.name, register = true)
         } catch {
             throw new Error('No pude cargar el cliente de Vercel Blob. Si es un splat, pegá su URL pública.');
         }
-        const folder = kind === 'splat' ? 'splat' : 'photos';
+        const folder = { splat: 'splat', video: 'video' }[kind] ?? 'photos';
         const blob = await upload(`${id}/${folder}/${clean}`, file, {
             access: 'public',
             handleUploadUrl: '/api/blob/upload',
@@ -163,7 +163,7 @@ export async function putFile(id, kind, file, name = file.name, register = true)
         }
         return { file: clean, url: blob.url, bytes: file.size };
     }
-    const route = kind === 'splat' ? 'splat' : 'photos';
+    const route = { splat: 'splat', video: 'video' }[kind] ?? 'photos';
     const skip = !register && kind !== 'splat' ? '&register=0' : '';
     return api(`/properties/${id}/${route}?name=${encodeURIComponent(clean)}${skip}`, {
         method: 'POST', raw: file, headers: { 'content-type': file.type || 'application/octet-stream' }
