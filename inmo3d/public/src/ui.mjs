@@ -118,7 +118,7 @@ export async function downscale(file, max = 1800, quality = 0.84) {
  * Sube un archivo. Con Vercel Blob va directo del navegador al storage (así no choca
  * contra el límite de 4,5 MB por request de las funciones); local pasa por el servidor.
  */
-export async function putFile(id, kind, file, name = file.name) {
+export async function putFile(id, kind, file, name = file.name, register = true) {
     const cfg = await config();
     const clean = safeName(name);
     // Sin token read-write no se puede subir directo: el archivo pasa por la función,
@@ -136,13 +136,16 @@ export async function putFile(id, kind, file, name = file.name) {
             handleUploadUrl: '/api/blob/upload',
             contentType: file.type || 'application/octet-stream'
         });
-        await api(`/properties/${id}/attach`, {
-            method: 'POST', body: { kind, url: blob.url, file: clean, bytes: file.size }
-        });
+        if (register) {
+            await api(`/properties/${id}/attach`, {
+                method: 'POST', body: { kind, url: blob.url, file: clean, bytes: file.size }
+            });
+        }
         return { file: clean, url: blob.url, bytes: file.size };
     }
     const route = kind === 'splat' ? 'splat' : 'photos';
-    return api(`/properties/${id}/${route}?name=${encodeURIComponent(clean)}`, {
+    const skip = !register && kind !== 'splat' ? '&register=0' : '';
+    return api(`/properties/${id}/${route}?name=${encodeURIComponent(clean)}${skip}`, {
         method: 'POST', raw: file, headers: { 'content-type': file.type || 'application/octet-stream' }
     });
 }

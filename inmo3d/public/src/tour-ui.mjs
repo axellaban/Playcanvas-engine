@@ -35,7 +35,7 @@ loader.remove();
 
 // Las mediciones de un visitante viven sólo en su navegador.
 const save = patch => (minimal ? Promise.resolve() : api(`/properties/${id}`, { method: 'PATCH', body: patch }));
-const st = { tool: null, pending: [], stop: -1, markers: [] };
+const st = { tool: null, pending: [], stop: -1, markers: [], dismissedSheet: false };
 
 const COLORS = { measure: new Color(1, 0.48, 0.27), pending: new Color(1, 0.9, 0.3) };
 
@@ -47,6 +47,10 @@ canvas.addEventListener('pointerup', async (e) => {
     const moved = down ? Math.hypot(e.clientX - down.x, e.clientY - down.y) : 99;
     down = null;
     if (moved > 6) return;                       // fue un arrastre de cámara, no un click
+    if (st.dismissedSheet) {
+        st.dismissedSheet = false;
+        return;
+    }
 
     const tool = st.tool;
     if (!tool && viewer.state.mode !== 'caminar') return;
@@ -242,32 +246,76 @@ function drawMinimap() {
     const span = Math.max(max.x - min.x, max.z - min.z, 1) * 1.1;
     const map = (x, z) => [((x - cx) / span + 0.5) * S, ((z - cz) / span + 0.5) * S];
 
-    ctx.strokeStyle = '#ffffff18';
-    ctx.strokeRect(...map(min.x, min.z), (max.x - min.x) / span * S, (max.z - min.z) / span * S);
+    // El plano se lee sobre fondo claro u oscuro, así que los colores salen del tema.
+    const css = getComputedStyle(document.documentElement);
+    const line = css.getPropertyValue('--line').trim() || '#2a3342';
+    const dim = css.getPropertyValue('--dim').trim() || '#8e9bb0';
+    const accent = css.getPropertyValue('--accent').trim() || '#ff6b35';
+    const ok = css.getPropertyValue('--ok').trim() || '#21c99a';
+    const card = css.getPropertyValue('--card').trim() || '#161b26';
+
+    const w = (max.x - min.x) / span * S, hgt = (max.z - min.z) / span * S;
+    const [ox, oy] = map(min.x, min.z);
+    ctx.fillStyle = color(line, 0.25);
+    ctx.fillRect(ox, oy, w, hgt);
+    ctx.strokeStyle = line;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(ox, oy, w, hgt);
+
+    // Hilo del recorrido: de un vistazo se ve por dónde va el tour.
+    const placed = prop.tour.filter(wp => wp.pos);
+    if (placed.length > 1) {
+        ctx.strokeStyle = color(dim, 0.5);
+        ctx.setLineDash([3, 4]);
+        ctx.beginPath();
+        placed.forEach((wp, i) => ctx[i ? 'lineTo' : 'moveTo'](...map(wp.pos[0], wp.pos[2])));
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
 
     prop.tour.forEach((wp, i) => {
         if (!wp.pos) return;
         const [x, y] = map(wp.pos[0], wp.pos[2]);
-        ctx.fillStyle = i === st.stop ? '#ff7a45' : '#ffffff66';
+        const active = i === st.stop;
+        ctx.fillStyle = active ? accent : card;
+        ctx.strokeStyle = active ? accent : dim;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.arc(x, y, 5, 0, 7);
+        ctx.arc(x, y, active ? 8 : 6.5, 0, 7);
         ctx.fill();
-        ctx.fillStyle = '#0e1116';
-        ctx.font = 'bold 8px sans-serif';
+        ctx.stroke();
+        ctx.fillStyle = active ? '#16100b' : dim;
+        ctx.font = `bold ${active ? 10 : 9}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillText(String(i + 1), x, y + 3);
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(i + 1), x, y + 0.5);
     });
 
     const p = viewer.camera.getPosition();
     const f = viewer.camera.forward;
     const [x, y] = map(p.x, p.z);
     const a = Math.atan2(f.z, f.x);
-    ctx.fillStyle = '#35c38f';
+    // Cono de visión: hacia dónde mira la cámara, no sólo dónde está.
+    ctx.fillStyle = color(ok, 0.22);
     ctx.beginPath();
-    ctx.moveTo(x + Math.cos(a) * 9, y + Math.sin(a) * 9);
-    ctx.lineTo(x + Math.cos(a + 2.5) * 6, y + Math.sin(a + 2.5) * 6);
-    ctx.lineTo(x + Math.cos(a - 2.5) * 6, y + Math.sin(a - 2.5) * 6);
+    ctx.moveTo(x, y);
+    ctx.arc(x, y, 26, a - 0.5, a + 0.5);
+    ctx.closePath();
     ctx.fill();
+    ctx.fillStyle = ok;
+    ctx.beginPath();
+    ctx.arc(x, y, 4.5, 0, 7);
+    ctx.fill();
+}
+
+/** Un color del tema con opacidad, sirva como hex o como rgb(). */
+function color(value, alpha) {
+    const hex = value.match(/^#([0-9a-f]{6})$/i);
+    if (hex) {
+        const n = parseInt(hex[1], 16);
+        return `rgba(${n >> 16 & 255}, ${n >> 8 & 255}, ${n & 255}, ${alpha})`;
+    }
+    return value.replace(/^rgb\(/, 'rgba(').replace(/\)$/, `, ${alpha})`);
 }
 setInterval(drawMinimap, 80);
 
@@ -466,7 +514,43 @@ const modeBtn = h('button.btn.sm.primary', {
     }
 }, '🛰 Órbita');
 
+/**
+ * En el celular los paneles son hojas que se abren desde la barra: si estuvieran
+ * fijos a los costados, como en escritorio, taparían la casa entera.
+ */
+const sheetButtons = [];
+
+function sheet(panel, label, title) {
+    const btn = h('button.btn.sm.sheet-toggle', { title }, label);
+    btn.onclick = () => {
+        const opening = !panel.classList.contains('open');
+        closeSheets();
+        panel.classList.toggle('open', opening);
+        btn.classList.toggle('on', opening);
+    };
+    sheetButtons.push([panel, btn]);
+    return btn;
+}
+
+/** Cierra las hojas abiertas y avisa si había alguna. */
+function closeSheets() {
+    let had = false;
+    for (const [panel, btn] of sheetButtons) {
+        had ||= panel.classList.contains('open');
+        panel.classList.remove('open');
+        btn.classList.remove('on');
+    }
+    return had;
+}
+
+// Tocar la casa cierra la hoja abierta; ese toque cierra y nada más, para no
+// teletransportarte sin querer al ir a cerrar el panel.
+canvas.addEventListener('pointerdown', () => {
+    st.dismissedSheet = closeSheets();
+});
+
 const toolbar = h('div.toolbar', {},
+    sheet(left, '🏠', 'Ficha y recorrido'),
     modeBtn,
     tool('medir', '📏 Medir', 'Medir una distancia'),
     !minimal && tool('calibrar', '📐 Calibrar', 'Fijar la escala real de la escena'),
@@ -491,6 +575,7 @@ const toolbar = h('div.toolbar', {},
             e.target.classList.toggle('on', on);
         }
     }, '🔄'),
+    sheet(right, '📐', 'Medidas y herramientas'),
     !minimal && h('button.btn.sm.ghost', {
         onclick: () => {
             left.classList.toggle('hide');

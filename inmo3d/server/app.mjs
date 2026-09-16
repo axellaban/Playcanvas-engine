@@ -131,6 +131,9 @@ export async function api(req, res, url) {
             const media = await store.putMedia(id, 'photos', name, await readRaw(req),
                 req.headers['content-type'] || 'image/jpeg');
             const entry = { ...media, addedAt: new Date().toISOString() };
+            // Con ?register=0 sólo se guardan los bytes: quien sube en paralelo registra
+            // todo junto al final con /attach, y así un lote no se pisa a sí mismo.
+            if (q.get('register') === '0') return json(res, entry, 201);
             prop.photos = [...prop.photos.filter(p => p.file !== entry.file), entry];
             await store.saveProperty(prop);
             return json(res, entry, 201);
@@ -159,7 +162,22 @@ export async function api(req, res, url) {
 
     // ---- registrar un archivo que ya está subido (Blob directo o URL externa)
     if (action === 'attach' && method === 'POST') {
-        const { kind, url: fileUrl, file, bytes } = await readJson(req);
+        const body = await readJson(req);
+
+        // Alta por lote: un solo escritor para todo el conjunto de fotos.
+        if (Array.isArray(body.photos)) {
+            const seen = new Set(body.photos.map(p => p.file));
+            prop.photos = [
+                ...prop.photos.filter(p => !seen.has(p.file)),
+                ...body.photos
+                .filter(p => p.file && p.url)
+                .map(p => ({ file: p.file, url: p.url, bytes: p.bytes ?? 0, addedAt: new Date().toISOString() }))
+            ];
+            await store.saveProperty(prop);
+            return json(res, { ok: true, photos: prop.photos.length }, 201);
+        }
+
+        const { kind, url: fileUrl, file, bytes } = body;
         if (!/^https?:\/\//.test(fileUrl || '')) return fail(res, 'Mandá una URL http(s) válida.');
         if (kind === 'splat') {
             if (!/\.(?:sog|ply|spz)(?:$|\?)/i.test(fileUrl)) {

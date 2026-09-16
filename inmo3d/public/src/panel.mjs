@@ -86,7 +86,7 @@ function field(label, key, meta, save, opts = {}) {
 function sectionFicha(prop, save) {
     const m = prop.meta;
     return h('div.card', {},
-        h('h2', {}, 'Ficha'),
+        h('h2', {}, '📋 Ficha'),
         field('Título', 'title', m, save),
         h('div.row', {}, field('Dirección', 'address', m, save), field('Ciudad', 'city', m, save)),
         h('div.row3', {},
@@ -126,18 +126,35 @@ function sectionPhotos(prop, save) {
         }, '✕'))));
 
     const count = h('small.dim', {}, `${prop.photos.length} fotos`);
+    // Dos entradas distintas a propósito: el carrete es el camino real para 80-200
+    // fotos (se sacan con la app de cámara, que tiene bloqueo de foco y exposición),
+    // y la cámara directa sirve para sumar la toma que faltaba sin salir de acá.
+    const fromCamera = h('input', {
+        type: 'file',
+        accept: 'image/*',
+        capture: 'environment',
+        style: { display: 'none' },
+        onchange: e => upload([...e.target.files])
+    });
+    const fromGallery = h('input', {
+        type: 'file',
+        multiple: true,
+        accept: 'image/*',
+        style: { display: 'none' },
+        onchange: e => upload([...e.target.files])
+    });
+
     const drop = h('div.drop', {},
         h('div', { style: { fontSize: '1.6rem' } }, '📷'),
-        h('div', {}, h('b', {}, 'Arrastrá las fotos acá')),
-        h('label.btn.sm', { style: { display: 'inline-flex', margin: '8px' } }, 'o elegir archivos',
-            h('input', {
-                type: 'file',
-                multiple: true,
-                accept: 'image/*',
-                style: { display: 'none' },
-                onchange: e => upload([...e.target.files])
-            })),
-        h('div', {}, h('small', {}, 'Lo ideal: 80-200 fotos, con 60-80% de solape entre tomas.')));
+        h('div.drag-hint', {}, h('b', {}, 'Arrastrá las fotos acá')),
+        h('div', {
+            style: { display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap', margin: '10px 0' }
+        },
+        h('button.btn.sm', { onclick: () => fromGallery.click() }, '🖼 Elegir del carrete'),
+        h('button.btn.sm', { onclick: () => fromCamera.click() }, '📷 Sacar una foto')),
+        fromCamera, fromGallery,
+        h('div', {}, h('small', {}, 'Lo ideal: 80-200 fotos con 60-80% de solape. ' +
+            'Sacalas con la app de cámara y después elegilas todas juntas del carrete.')));
 
     drop.addEventListener('dragover', (e) => {
         e.preventDefault();
@@ -154,26 +171,53 @@ function sectionPhotos(prop, save) {
         if (!files.length) return;
         let done = 0;
         drop.style.opacity = 0.6;
-        for (const file of files) {
-            count.textContent = `subiendo ${++done}/${files.length}…`;
-            try {
-                // Achicamos antes de subir: mejor para el modelo de visión y para el límite de request.
-                const up = await putFile(prop.id, 'photo', await downscale(file), file.name);
-                prop.photos.push(up);
-                grid.append(h('figure', {}, h('img', { src: up.url })));
-            } catch (e) {
-                toast(`${file.name}: ${e.message}`, true, 8000);
-                break;
+        const failed = [];
+        const subidas = [];
+        const queue = [...files];
+
+        // De a tres en paralelo: subir 150 fotos de a una desde el celular es eterno.
+        // Si una falla se reintenta una vez y, si igual falla, seguimos con el resto:
+        // en una red móvil no puede caerse toda la carga por una sola foto.
+        const worker = async () => {
+            while (queue.length) {
+                const file = queue.shift();
+                count.textContent = `subiendo ${++done}/${files.length}…`;
+                try {
+                    // Achicamos antes de subir: mejor para el modelo de visión y para el límite de request.
+                    const small = await downscale(file);
+                    let up;
+                    try {
+                        up = await putFile(prop.id, 'photo', small, file.name, false);
+                    } catch {
+                        up = await putFile(prop.id, 'photo', small, file.name, false);
+                    }
+                    subidas.push(up);
+                    grid.append(h('figure', {}, h('img', { src: up.url, loading: 'lazy' })));
+                } catch (e) {
+                    failed.push(`${file.name}: ${e.message}`);
+                }
             }
+        };
+        await Promise.all([worker(), worker(), worker()]);
+
+        // Los bytes viajaron en paralelo; el registro va en una sola escritura al final.
+        if (subidas.length) {
+            await api(`/properties/${prop.id}/attach`, { method: 'POST', body: { photos: subidas } });
+            prop.photos.push(...subidas);
         }
+
         drop.style.opacity = 1;
         count.textContent = `${prop.photos.length} fotos`;
-        toast(`Listo: ${prop.photos.length} fotos en total.`);
+        if (failed.length) {
+            toast(`${files.length - failed.length} subidas, ${failed.length} fallaron. ${failed[0]}`, true, 10000);
+        } else {
+            toast(`Listo: ${prop.photos.length} fotos en total.`);
+        }
     }
 
     return h('div.card', {},
         h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
-            h('h2', { style: { margin: 0, flex: 1 } }, 'Fotos'), count),
+            h('h2', { style: { margin: 0, flex: 1 } }, '📷 Fotos'), count),
         h('div', { style: { height: '10px' } }), drop, grid);
 }
 
@@ -181,6 +225,9 @@ function sectionPhotos(prop, save) {
 
 function sectionScene(prop) {
     const bar = h('i', { style: { width: `${prop.job?.progress || 0}%` } });
+    // La barra se arma acá y no en el árbol de abajo: el primer pintado ocurre antes
+    // de montarla, y pedirle el padre a un nodo suelto rompía todo el detalle.
+    const barBox = h('div.bar', {}, bar);
     const status = h('div.dim', { style: { fontSize: '.82rem', margin: '8px 0' } });
     const log = h('pre.log.hide');
     const opts = {
@@ -191,6 +238,7 @@ function sectionScene(prop) {
 
     const paint = (job, running, text) => {
         bar.style.width = `${job?.progress || 0}%`;
+        barBox.classList.toggle('run', !!running || job?.status === 'running');
         status.textContent = !job ? 'Todavía no se reconstruyó.' :
             job.status === 'running' || running ? `Reconstruyendo — etapa: ${job.step}` :
                 job.status === 'error' ? `Falló: ${job.error}` : 'Listo: el tour 3D está disponible.';
@@ -259,8 +307,8 @@ function sectionScene(prop) {
         location.reload();
     });
 
-    return h('div.card', {},
-        h('h2', {}, 'Escena 3D'),
+    return h('div', { class: `card ${prop.scene.splatUrl ? 'ok' : ''}` },
+        h('h2', {}, prop.scene.splatUrl ? '✅ Escena 3D' : '🧊 Escena 3D'),
         h('p.dim', { style: { marginTop: 0, fontSize: '.85rem' } },
             'Las fotos se convierten en una nube de Gaussians con COLMAP + un entrenador 3DGS, y se comprimen a ',
             h('code.mono', {}, '.sog'), ', el formato que este motor carga con streaming y LOD.'),
@@ -281,7 +329,7 @@ function sectionScene(prop) {
         h('label', {}, 'o enlazar un splat que ya esté publicado en otra URL'),
         h('div', { style: { display: 'flex', gap: '6px' } }, urlInput, attach),
         h('div', { style: { height: '12px' } }),
-        h('div.bar', {}, bar), status, log);
+        barBox, status, log);
 }
 
 // ---- IA
@@ -306,7 +354,7 @@ function sectionAI(prop, save) {
     };
 
     paint();
-    return h('div.card', {},
+    return h('div.card.ai', {},
         h('h2', {}, '🤖 IA generativa'),
         !CFG.ai.text && h('p.chip.warn', {}, 'Falta ANTHROPIC_API_KEY: cargala en inmo3d/.env'),
         h('p.dim', { style: { marginTop: '4px', fontSize: '.85rem' } },
@@ -395,7 +443,7 @@ function sectionShare(prop) {
     const url = `${location.origin}/tour.html?id=${prop.id}`;
     const embed = `<iframe src="${url}&ui=min" width="100%" height="560" style="border:0;border-radius:14px" allow="xr-spatial-tracking; fullscreen"></iframe>`;
     return h('div.card', {},
-        h('h2', {}, 'Compartir'),
+        h('h2', {}, '🔗 Compartir'),
         h('label', {}, 'Link del tour'),
         h('div', { style: { display: 'flex', gap: '6px' } },
             h('input', { value: url, readonly: true }),
