@@ -6,15 +6,19 @@
   "description": "Fotos de una casa -> tour 3D navegable (Gaussian Splatting sobre PlayCanvas) + IA generativa para el rubro inmobiliario.",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "lint": "eslint api public/src server test",
+    "lint": "eslint api public/src server test tools",
     "start": "node server/index.mjs",
     "demo": "node tools/demo-splat.mjs",
     "worker": "node tools/worker.mjs",
+    "worker:install": "node tools/servicio.mjs",
+    "worker:uninstall": "node tools/servicio.mjs uninstall",
     "dev": "node --watch server/index.mjs",
     "engine:build": "node ../build.mjs --format esm --type rel",
     "reconstruct": "bash pipeline/reconstruct.sh"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
     "@vercel/blob": "latest"

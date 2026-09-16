@@ -176,7 +176,16 @@ function sectionPhotos(prop, save) {
                 const up = await putFile(prop.id, 'video', file);
                 prop.video = up;
                 estadoVideo.replaceChildren(h('span.chip.ok', {}, `🎬 video cargado (${(up.bytes / 1e6).toFixed(0)} MB)`));
-                toast('Video cargado. Ya podés reconstruir.');
+                // Subir el recorrido y pedir el 3D son el mismo gesto: nadie sube un video de
+                // una casa para no reconstruirla. Se encola solo y la página vuelve mostrando
+                // el avance, así el botón queda sólo para reintentar o para el camino de fotos.
+                try {
+                    await api(`/properties/${prop.id}/reconstruct`, { method: 'POST', body: {} });
+                    toast('Video cargado. Ya estoy armando el 3D.');
+                } catch (e) {
+                    toast(e.message);
+                }
+                setTimeout(() => location.reload(), 1200);
             } catch (err) {
                 estadoVideo.replaceChildren(h('span.chip.warn', {}, err.message));
             }

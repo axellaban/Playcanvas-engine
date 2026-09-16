@@ -24,6 +24,11 @@ const BASE = (process.env.INMO3D_URL || `http://localhost:${process.env.PORT || 
 const TOKEN = process.env.INMO3D_ADMIN_TOKEN || '';
 const NOMBRE = process.env.INMO3D_WORKER_NAME || os.hostname();
 const ESPERA = Number(process.env.INMO3D_WORKER_POLL || 15) * 1000;
+const REINTENTOS = 2;
+// Un fallo temprano —ffmpeg, una opción que COLMAP no conoce, el video que no bajó— se
+// reintenta solo. Uno que aparece después de horas de entrenamiento no: repetirlo son otras
+// tantas horas para llegar al mismo lado, y eso hay que mirarlo, no insistirlo.
+const RAPIDO = 15 * 60_000;
 
 let cookie = '';
 
@@ -60,6 +65,18 @@ async function entrar() {
     if (!res.ok) throw new Error('No pude iniciar sesión: revisá INMO3D_ADMIN_TOKEN.');
     cookie = (res.headers.getSetCookie?.()[0] || '').split(';')[0];
     log('sesión iniciada en', BASE);
+}
+
+/**
+ * Mientras dura un trabajo la Mac no se duerme. Antes había que acordarse de escribir
+ * `caffeinate` a mano; ahora se pide solo y se suelta al terminar, así la máquina vuelve a
+ * dormirse normal en vez de quedarse despierta para siempre.
+ */
+function noDormir() {
+    if (process.platform !== 'darwin') return () => {};
+    const hijo = spawn('caffeinate', ['-i'], { stdio: 'ignore' });
+    hijo.on('error', () => {});
+    return () => hijo.kill();
 }
 
 /** Se baja las fotos de la propiedad a una carpeta temporal. */
@@ -154,18 +171,38 @@ async function procesar(trabajo) {
     const base = await fs.mkdtemp(path.join(os.tmpdir(), `inmo3d-${trabajo.id}-`));
     const fotos = path.join(base, 'fotos');
     const salida = path.join(base, 'salida');
+    const dejarDormir = noDormir();
     log(`▶ ${trabajo.titulo} (${trabajo.video ? 'video' : `${trabajo.fotos.length} fotos`})`);
     try {
-        if (trabajo.video) await desdeElVideo(trabajo, fotos);
-        else await bajarFotos(trabajo, fotos);
-        await reconstruir(trabajo, fotos, salida);
-        const url = await subir(trabajo, path.join(salida, 'model.sog'));
-        await api(`/jobs/${trabajo.id}`, { splatUrl: url, file: `${trabajo.id}/splat/model.sog` });
-        log(`✔ ${trabajo.titulo} listo`);
-    } catch (e) {
-        log(`✖ ${trabajo.titulo}: ${e.message}`);
-        await api(`/jobs/${trabajo.id}`, { error: e.message }).catch(() => {});
+        // Se reusa la misma carpeta entre intentos a propósito: el pipeline reconoce el
+        // cálculo de cámaras que ya hizo y no lo repite, así un reintento cuesta minutos
+        // y no vuelve a empezar de cero.
+        for (let intento = 0; ; intento++) {
+            const desde = Date.now();
+            try {
+                if (trabajo.video) await desdeElVideo(trabajo, fotos);
+                else await bajarFotos(trabajo, fotos);
+                await reconstruir(trabajo, fotos, salida);
+                const url = await subir(trabajo, path.join(salida, 'model.sog'));
+                await api(`/jobs/${trabajo.id}`, { splatUrl: url, file: `${trabajo.id}/splat/model.sog` });
+                log(`✔ ${trabajo.titulo} listo`);
+                return;
+            } catch (e) {
+                if (intento >= REINTENTOS || Date.now() - desde >= RAPIDO) {
+                    log(`✖ ${trabajo.titulo}: ${e.message}`);
+                    await api(`/jobs/${trabajo.id}`, { error: e.message }).catch(() => {});
+                    return;
+                }
+                const van = `${intento + 1} de ${REINTENTOS}`;
+                log(`⟳ ${trabajo.titulo}: ${e.message} — reintento ${van}`);
+                await api(`/jobs/${trabajo.id}`, {
+                    step: `reintentando (${van})`,
+                    log: `\n⟳ falló y lo reintento solo (${van}): ${e.message}\n`
+                }).catch(() => {});
+            }
+        }
     } finally {
+        dejarDormir();
         // El material queda por si hay que mirar qué pasó; se limpia solo al reiniciar la máquina.
         log(`  material en ${base}`);
     }
