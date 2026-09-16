@@ -6,7 +6,11 @@ import * as storage from './storage.mjs';
 
 const ESTADO = '_estado/worker.json';
 const VIVO = 90_000;          // sin señales por más de esto, damos el worker por caído
+const TRABAJANDO = 5 * 60_000;    // sin noticias de un trabajo por más de esto, no lo damos por vivo
 const ABANDONADO = 30 * 60_000;   // un trabajo tomado y sin avanzar vuelve a la cola
+
+/** Última vez que este trabajo dio señales de estar vivo. */
+const ultimaSenal = job => Date.parse(job.visto || job.tomadoEn || job.pedidoEn);
 
 const ahora = () => new Date().toISOString();
 
@@ -30,8 +34,16 @@ export async function encolar(id, opciones = {}) {
             `Con ${prop.photos.length} fotos no alcanza. Subí al menos 20 (lo ideal: 80-200), o grabá un video del recorrido.` :
             'Subí fotos (80-200) o grabá un video recorriendo el ambiente.');
     }
-    if (prop.job?.status === 'pendiente' || prop.job?.status === 'corriendo') {
+    // Se rechaza mientras el pedido siga en pie: esperando que el worker lo tome, o con el
+    // worker trabajándolo ahora mismo. Lo que ya no traba el botón es un trabajo que quedó
+    // marcado como en curso porque el worker se cortó a la mitad —Ctrl+C, la tapa de la
+    // notebook, un corte de luz—. Antes eso dejaba la propiedad inservible media hora, hasta
+    // que venciera el plazo de abandono, sin más explicación que "ya está en la cola".
+    if (prop.job?.status === 'pendiente') {
         throw new Error('Esta propiedad ya está en la cola.');
+    }
+    if (prop.job?.status === 'corriendo' && Date.now() - ultimaSenal(prop.job) < TRABAJANDO) {
+        throw new Error('Ya se está reconstruyendo. Mirá cómo va acá abajo.');
     }
     prop.job = {
         status: 'pendiente',
@@ -60,9 +72,30 @@ export async function cancelar(id) {
  * Entrega el trabajo más viejo que esté esperando. Si un trabajo quedó "corriendo"
  * mucho tiempo sin dar señales (se cortó la luz, se cerró la notebook), vuelve a la cola.
  */
-export async function tomar(nombreWorker) {
+export async function tomar(nombreWorker, reiniciado = false) {
     await latido(nombreWorker);
     const lista = await store.listProperties();
+
+    // Un worker que recién arranca no está corriendo nada. Si algo quedó marcado como en
+    // curso es de una sesión anterior que se cortó, así que vuelve a la cola y esta sesión
+    // lo retoma sola: apagar y prender el worker alcanza para destrabar, sin tocar nada más.
+    if (reiniciado) {
+        for (const item of lista.filter(p => p.job?.status === 'corriendo')) {
+            const prop = await store.getProperty(item.id);
+            if (prop?.job?.status !== 'corriendo') continue;
+            prop.job = {
+                ...prop.job,
+                status: 'pendiente',
+                step: 'en cola',
+                progress: 0,
+                log: '',
+                error: null,
+                tomadoEn: null,
+                visto: null
+            };
+            await store.saveProperty(prop);
+        }
+    }
     const candidatas = lista
     .filter(p => p.job?.status === 'pendiente' || p.job?.status === 'corriendo')
     .sort((a, b) => (a.updatedAt < b.updatedAt ? -1 : 1));
@@ -71,7 +104,7 @@ export async function tomar(nombreWorker) {
         const prop = await store.getProperty(item.id);
         if (!prop?.job) continue;
         const vencido = prop.job.status === 'corriendo' &&
-            Date.now() - Date.parse(prop.job.tomadoEn || prop.job.pedidoEn) > ABANDONADO;
+            Date.now() - ultimaSenal(prop.job) > ABANDONADO;
         if (prop.job.status !== 'pendiente' && !vencido) continue;
 
         prop.job = { ...prop.job, status: 'corriendo', step: 'preparando', tomadoEn: ahora(), error: null };
@@ -95,6 +128,7 @@ export async function avance(id, { step, progress, log }) {
     prop.job = {
         ...prop.job,
         status: 'corriendo',
+        visto: ahora(),
         step: step ?? prop.job.step,
         progress: progress ?? prop.job.progress,
         // Guardamos sólo la cola del log: alcanza para ver qué pasó y no infla el JSON.

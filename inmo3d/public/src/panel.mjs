@@ -403,10 +403,13 @@ function sectionScene(prop) {
 
 function sectionAI(prop, save) {
     const out = h('div');
-    const paint = () => out.replaceChildren(
+    // replaceChildren no descarta lo falso como hace h(): un null llega al DOM convertido en
+    // el texto "null". Con las tres secciones vacías se leía "nullnullnull" abajo del título.
+    const paint = () => out.replaceChildren(...[
         prop.ai.audit && block('Auditoría de captura', auditView(prop.ai.audit)),
         prop.ai.rooms && block('Ambientes y guion', roomsView(prop, save)),
-        prop.ai.listing && block('Aviso', listingView(prop.ai.listing)));
+        prop.ai.listing && block('Aviso', listingView(prop.ai.listing))
+    ].filter(Boolean));
 
     const btn = (label, path, after) => {
         const b = h('button.btn', { disabled: !CFG.ai.text });

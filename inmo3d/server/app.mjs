@@ -99,8 +99,8 @@ export async function api(req, res, url) {
     if (seg[0] === 'jobs') {
         requireAdmin(req);
         if (seg[1] === 'next' && method === 'POST') {
-            const { worker: nombre } = await readJson(req);
-            return json(res, await jobs.tomar(nombre || 'worker'));
+            const { worker: nombre, reiniciado } = await readJson(req);
+            return json(res, await jobs.tomar(nombre || 'worker', reiniciado));
         }
         if (seg[1] && method === 'POST') {
             const body = await readJson(req);

@@ -178,9 +178,13 @@ await entrar().catch((e) => {
 });
 
 let anuncioDeCalma = true;
+// En el primer pedido avisamos que esta sesión arranca de cero: lo que haya quedado marcado
+// como en curso es de una corrida anterior que se cortó, y el servidor lo devuelve a la cola.
+let reiniciado = true;
 for (;;) {
     try {
-        const trabajo = await api('/jobs/next', { worker: NOMBRE });
+        const trabajo = await api('/jobs/next', { worker: NOMBRE, reiniciado });
+        reiniciado = false;
         if (trabajo) {
             anuncioDeCalma = true;
             await procesar(trabajo);

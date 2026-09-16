@@ -157,4 +157,29 @@ test('un video alcanza para encolar', async (t) => {
     });
     const trabajo = await tomado.json();
     assert.ok(trabajo.video, 'el trabajo le pasa el video al worker');
+
+    const encolarDeNuevo = () => fetch(`${base}/api/properties/${id}/reconstruct`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}'
+    });
+
+    // Con el worker trabajándola de verdad, pedirla otra vez sería largar dos corridas.
+    assert.equal((await encolarDeNuevo()).status, 400, 'mientras se reconstruye no se encola de nuevo');
+
+    // Se corta el worker a la mitad y vuelve a arrancar. El trabajo quedó marcado como en
+    // curso pero no lo está corriendo nadie: apagar y prender tiene que alcanzar para que lo
+    // retome. Antes quedaba trabado media hora y el botón sólo decía "ya está en la cola".
+    const retomado = await fetch(`${base}/api/jobs/next`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ worker: 'test', reiniciado: true })
+    });
+    assert.equal((await retomado.json())?.id, id, 'un worker que reinicia retoma lo que quedó colgado');
+
+    // Y si la Mac no vuelve a prenderse, el botón tampoco puede quedar trabado para siempre.
+    const archivo = path.join(dataDir, id, 'property.json');
+    const guardada = JSON.parse(await fs.readFile(archivo, 'utf8'));
+    const haceRato = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+    guardada.job = { ...guardada.job, status: 'corriendo', tomadoEn: haceRato, visto: haceRato };
+    await fs.writeFile(archivo, JSON.stringify(guardada));
+    assert.equal((await encolarDeNuevo()).status, 202, 'un trabajo sin señales se puede volver a pedir');
 });
