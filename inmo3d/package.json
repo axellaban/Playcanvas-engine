@@ -9,6 +9,7 @@
     "lint": "eslint api public/src server test",
     "start": "node server/index.mjs",
     "demo": "node tools/demo-splat.mjs",
+    "worker": "node tools/worker.mjs",
     "dev": "node --watch server/index.mjs",
     "engine:build": "node ../build.mjs --format esm --type rel",
     "reconstruct": "bash pipeline/reconstruct.sh"

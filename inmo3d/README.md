@@ -59,15 +59,43 @@ gastar horas de GPU.
 
 ### 2. Reconstruir
 
-Botón **🧱 Reconstruir en 3D** (con los valores por defecto; para elegir SfM, entrenador o pasos,
-usá las variables de entorno o el script directo). Por atrás corre [`pipeline/reconstruct.sh`](pipeline/README.md):
-COLMAP o GLOMAP resuelven las poses de cámara, un entrenador de Gaussian Splatting genera la nube, y
-`@playcanvas/splat-transform` la comprime al `.sog` que este motor carga nativo. El panel muestra
-etapa, progreso y log en vivo.
+Botón **🧱 Reconstruir en 3D**. La web **no entrena**: encola el pedido. Un *worker* con GPU lo
+toma, entrena y sube el `.sog` terminado. El panel muestra etapa, progreso y log en vivo, y desde el
+celular se ve igual: apretás el botón, cerrás, y al rato está el tour.
 
-**¿No tenés GPU?** Entrená afuera y usá **⬆ Subir splat ya entrenado**: sirve cualquier `.ply`,
+Es así porque entrenar un splat son de 10 minutos a 2 horas de GPU dedicada, y eso no entra en una
+función serverless (sin GPU, filesystem de sólo lectura, corte a los pocos minutos). La web orquesta;
+la GPU la pone el worker.
+
+#### El worker
+
+En la máquina que tenga GPU (o Apple Silicon, que entrena con `brush` vía Metal):
+
+```bash
+cd inmo3d
+npm install
+INMO3D_URL=https://tu-app.vercel.app INMO3D_ADMIN_TOKEN=tuclave npm run worker
+```
+
+Sin variables apunta al servidor local. Queda escuchando: toma un trabajo, lo hace, y vuelve a
+esperar. Si lo apagás a mitad de camino, el trabajo vuelve solo a la cola a los 30 minutos.
+
+| Variable | Para qué |
+|---|---|
+| `INMO3D_URL` | A qué instalación se conecta |
+| `INMO3D_ADMIN_TOKEN` | La misma clave del panel |
+| `INMO3D_WORKER_NAME` | Cómo se identifica (por defecto, el nombre de la máquina) |
+| `INMO3D_WORKER_POLL` | Cada cuántos segundos pregunta (por defecto 15) |
+| `INMO3D_PIPELINE` | Otro script de reconstrucción, si preferís el tuyo |
+| `INMO3D_SFM`, `INMO3D_TRAINER`, `INMO3D_STEPS` | Opciones del pipeline |
+
+Por atrás corre [`pipeline/reconstruct.sh`](pipeline/README.md): COLMAP o GLOMAP resuelven las poses
+de cámara, un entrenador de Gaussian Splatting genera la nube, y `@playcanvas/splat-transform` la
+comprime al `.sog` que este motor carga nativo.
+
+**¿No tenés GPU a mano?** **⬆ Subir splat ya entrenado** sigue estando: sirve cualquier `.ply`,
 `.compressed.ply`, `.spz` o `.sog` de [SuperSplat](https://superspl.at), Polycam, Luma, Scaniverse,
-Postshot o Nerfstudio. Todo lo demás del producto funciona igual.
+Postshot o Nerfstudio.
 
 ### 3. Armar el tour
 
@@ -149,11 +177,9 @@ Qué cambia respecto de correrlo local:
 | Fotos | se achican a 1800 px y suben | igual, pero van directo del navegador al Blob |
 | Splat | subida directa | directo al Blob (esquiva el límite de 4,5 MB por request), o pegás una URL pública |
 | Motor | build local del fork | CDN de PlayCanvas (redirect de `vercel.json`) |
-| **Reconstruir desde fotos** | ✅ | ❌ necesita COLMAP y GPU |
+| **Reconstruir desde fotos** | worker local | worker (donde tengas la GPU) |
 
-Esa última fila es la importante: **en Vercel no se reconstruye**. El flujo es entrenar el splat en
-tu máquina o en Docker (`pipeline/README.md`), subir el `.sog` y usar el deploy para el tour, la IA y
-compartir. El botón de reconstruir aparece deshabilitado con el aviso correspondiente.
+En los dos casos la reconstrucción la hace el worker: cambia dónde corre, no cómo se usa.
 
 ---
 
@@ -189,6 +215,7 @@ inmo3d/
 │   ├── app.mjs        la API (la misma en local y en Vercel)
 │   ├── index.mjs      servidor local: estáticos + media + motor + API
 │   ├── storage.mjs    dos drivers con la misma interfaz: carpeta local o Vercel Blob
+│   ├── jobs.mjs       la cola de reconstrucción
 │   ├── store.mjs      una propiedad = una carpeta con su JSON (sin base de datos)
 │   ├── pipeline.mjs   lanza la reconstrucción y sigue su progreso
 │   └── ai.mjs         Claude (texto y visión) + proveedor de imagen enchufable
@@ -203,6 +230,7 @@ inmo3d/
 │   └── index.js       la misma API, con rewrite explícito de Vercel
 ├── pipeline/        reconstruct.sh + Dockerfile (COLMAP + GLOMAP + OpenSplat)
 └── tools/
+    ├── worker.mjs       toma los trabajos de la cola y los reconstruye
     └── demo-splat.mjs   casa sintética para probar sin GPU
 ```
 
@@ -234,8 +262,10 @@ POST   /api/properties/:id/photos?name=x.jpg  subida (cuerpo crudo)
 POST   /api/properties/:id/splat?name=x.sog   subir un splat ya entrenado
 POST   /api/properties/:id/attach             registrar algo ya subido  { kind, url, file, bytes }
 POST   /api/blob/upload                       token para subir directo a Vercel Blob
-POST   /api/properties/:id/reconstruct        arranca el pipeline  { sfm, trainer, steps }
-GET    /api/properties/:id/job                estado + log
+POST   /api/properties/:id/reconstruct        encola la reconstrucción
+GET    /api/properties/:id/job                estado + log + si hay worker escuchando
+POST   /api/jobs/next                         el worker pide trabajo (y avisa que está vivo)
+POST   /api/jobs/:id                          el worker reporta avance, error o resultado
 POST   /api/properties/:id/ai/{audit|rooms|listing|ask|stage}
 ```
 
@@ -260,7 +290,8 @@ Para que nadie se lleve una sorpresa:
 - Una sola clave administrativa; todavía no hay cuentas por inmobiliaria ni roles. El listado de
   propiedades exige sesión, pero **cada propiedad y sus archivos son públicos por su link** (es lo que
   hace que se pueda compartir un tour): no guardes documentos ni notas confidenciales.
-- El pipeline necesita GPU. Sin GPU, el camino es entrenar afuera y subir el `.ply`/`.sog`.
+- La reconstrucción necesita una GPU en algún lado: la web encola, pero alguien tiene que
+  entrenar. Sin worker prendido, los pedidos esperan.
 
 ## Verificación
 

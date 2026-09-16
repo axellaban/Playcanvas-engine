@@ -235,41 +235,58 @@ function sectionScene(prop) {
     const status = h('div.dim', { style: { fontSize: '.82rem', margin: '8px 0' } });
     const log = h('pre.log.hide');
 
-    const paint = (job, running, text) => {
+    const ESTADOS = {
+        pendiente: 'En la cola. Lo toma el worker apenas esté libre.',
+        corriendo: job => `Reconstruyendo — ${job.step}`,
+        listo: 'Listo: el tour 3D está disponible.',
+        error: job => `Falló: ${job.error}`,
+        cancelado: 'Cancelado.'
+    };
+
+    const paint = (job, worker) => {
         bar.style.width = `${job?.progress || 0}%`;
-        barBox.classList.toggle('run', !!running || job?.status === 'running');
+        const activo = job?.status === 'pendiente' || job?.status === 'corriendo';
+        barBox.classList.toggle('run', activo);
+        const texto = ESTADOS[job?.status];
         status.textContent = !job ? 'Todavía no se reconstruyó.' :
-            job.status === 'running' || running ? `Reconstruyendo — etapa: ${job.step}` :
-                job.status === 'error' ? `Falló: ${job.error}` : 'Listo: el tour 3D está disponible.';
-        if (text) {
-            log.textContent = text;
+            (typeof texto === 'function' ? texto(job) : texto ?? '');
+        if (worker) {
+            estadoWorker.textContent = worker.conectado ? '● worker conectado' : '○ ningún worker conectado';
+            estadoWorker.className = worker.conectado ? 'chip ok' : 'chip warn';
+        }
+        if (job?.log) {
+            log.textContent = job.log;
             log.classList.remove('hide');
             log.scrollTop = log.scrollHeight;
         }
     };
-    paint(prop.job, false);
+
+    const estadoWorker = h('span.chip', {}, '…');
+    paint(prop.job, CFG.worker);
 
     let timer;
     async function poll() {
-        const { job, running, log: text } = await api(`/properties/${prop.id}/job`);
-        paint(job, running, text);
-        if (running) {
-            timer = setTimeout(poll, 2500);
+        const { job, worker } = await api(`/properties/${prop.id}/job`);
+        paint(job, worker);
+        if (job?.status === 'pendiente' || job?.status === 'corriendo') {
+            timer = setTimeout(poll, 4000);
         } else {
             clearTimeout(timer);
-            if (job?.status === 'done') {
+            if (job?.status === 'listo') {
                 toast('¡Reconstrucción lista! Abrí el tour.');
                 setTimeout(() => location.reload(), 900);
             }
         }
     }
-    if (prop.job?.status === 'running') poll();
+    if (prop.job?.status === 'pendiente' || prop.job?.status === 'corriendo') poll();
 
-    const run = h('button.btn.primary', { disabled: !CFG.canReconstruct });
+    const run = h('button.btn.primary', {});
     run.textContent = '🧱 Reconstruir en 3D';
     run.onclick = busy(run, async () => {
         await api(`/properties/${prop.id}/reconstruct`, { method: 'POST', body: {} });
-        toast('Arrancó la reconstrucción. Puede tardar de minutos a horas.');
+        toast(CFG.worker?.conectado ?
+            'En la cola. El worker la toma enseguida; podés cerrar esto.' :
+            'En la cola. Va a arrancar cuando prendas el worker.');
         poll();
     });
 
@@ -307,8 +324,10 @@ function sectionScene(prop) {
         h('h2', {}, prop.scene.splatUrl ? '✅ Escena 3D' : '🧊 Escena 3D'),
         h('p.dim', { style: { marginTop: 0, fontSize: '.85rem' } },
             'Las fotos se convierten en la nube de puntos que recorrés en el tour.'),
-        !CFG.canReconstruct && h('p.chip.warn', {},
-            'Este deploy no puede reconstruir (necesita COLMAP y GPU): entrená local o en Docker y subí el .sog'),
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', margin: '6px 0 10px' } },
+            estadoWorker,
+            !CFG.worker?.conectado && h('small.dim', {},
+                'Corré `npm run worker` en la máquina con GPU para que tome los trabajos.')),
         h('div', { style: { display: 'flex', gap: '8px', margin: '14px 0 10px', flexWrap: 'wrap' } },
             run,
             h('button.btn', { onclick: () => up.click() }, '⬆ Subir splat ya entrenado'), up,

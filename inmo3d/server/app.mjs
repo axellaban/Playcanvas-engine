@@ -1,7 +1,7 @@
 // La API. Corre igual como servidor local (server/index.mjs) o como función de Vercel (api/).
 import * as store from './store.mjs';
 import * as storage from './storage.mjs';
-import * as pipe from './pipeline.mjs';
+import * as jobs from './jobs.mjs';
 import * as ai from './ai.mjs';
 import { authStatus, requireAdmin, login, logout } from './auth.mjs';
 
@@ -74,7 +74,7 @@ export async function api(req, res, url) {
             ai: ai.config(),
             storage: storage.driver,
             vercel: storage.onVercel,
-            canReconstruct: pipe.available(),
+            worker: await jobs.worker(),
             writable: !(storage.onVercel && !storage.isBlob),
             clientUpload: storage.canClientUpload,
             blobVars: storage.blobVars(),
@@ -94,6 +94,21 @@ export async function api(req, res, url) {
     }
     // El SDK verifica la firma del callback de Blob; sólo la emisión exige sesión.
     if (seg[0] === 'blob' && seg[1] === 'upload' && method === 'POST') return blobUploadToken(req, res);
+
+    // ---- cola de reconstrucción (las usa el worker con GPU)
+    if (seg[0] === 'jobs') {
+        requireAdmin(req);
+        if (seg[1] === 'next' && method === 'POST') {
+            const { worker: nombre } = await readJson(req);
+            return json(res, await jobs.tomar(nombre || 'worker'));
+        }
+        if (seg[1] && method === 'POST') {
+            const body = await readJson(req);
+            if (body.splatUrl || body.error) return json(res, await jobs.terminar(seg[1], body));
+            return json(res, await jobs.avance(seg[1], body));
+        }
+        return json(res, { error: 'Ruta desconocida.' }, 404);
+    }
 
     if (seg[0] !== 'properties') return json(res, { error: 'Ruta desconocida.' }, 404);
     if (method !== 'GET' && method !== 'HEAD') requireAdmin(req);
@@ -202,16 +217,16 @@ export async function api(req, res, url) {
     if (action === 'reconstruct') {
         if (method === 'POST') {
             try {
-                return json(res, await pipe.start(id, await readJson(req)), 202);
+                return json(res, await jobs.encolar(id, await readJson(req)), 202);
             } catch (e) {
-                return fail(res, e);
+                return fail(res, e, e.status);
             }
         }
-        if (method === 'DELETE') return json(res, { stopped: pipe.stop(id) });
+        if (method === 'DELETE') return json(res, { cancelado: await jobs.cancelar(id) });
     }
 
     if (action === 'job' && method === 'GET') {
-        return json(res, { job: prop.job, running: pipe.isRunning(id), log: await pipe.tail(id) });
+        return json(res, { job: prop.job, worker: await jobs.worker() });
     }
 
     // ---- IA
