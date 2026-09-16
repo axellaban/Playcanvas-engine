@@ -90,7 +90,7 @@ canvas.addEventListener('pointerup', async (e) => {
 
     const p = await viewer.pickWorld(e.clientX, e.clientY);
     if (!p) {
-        if (tool) toast('Ahí no hay superficie. Probá sobre una pared o el piso.', true);
+        if (tool) toast('Ahí no hay nada que tocar: apuntá a una pared, el piso o un mueble.', true);
         return;
     }
 
@@ -474,15 +474,14 @@ function sectionEscena() {
     return h('section', {},
         h('h3', {}, '🧭 Enderezar escena'),
         h('p.dim', { style: { fontSize: '.8rem', margin: '0 0 6px' } },
-            'Los escaneos salen con la orientación de la cámara, no de la casa. Girá hasta que el piso quede horizontal.'),
+            'Girá hasta que el piso quede horizontal.'),
         slider('pitch', 'Inclinación', -180, 180, 1),
         slider('yaw', 'Giro', -180, 180, 1),
         slider('roll', 'Alabeo', -180, 180, 1),
-        slider('scale', 'Escala', 0.1, 5, 0.01),
         h('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } },
             h('button.btn.sm', {
                 onclick: () => {
-                    const e = { pitch: 0, yaw: 0, roll: 0, scale: 1 };
+                    const e = { pitch: 0, yaw: 0, roll: 0 };
                     Object.assign(S, e);
                     viewer.applyTransform(S);
                     save({ scene: e });
@@ -505,7 +504,7 @@ const right = h('div.panel-r', {},
     !minimal && h('section', {},
         h('h3', {}, '✨ Home staging virtual'),
         h('p.dim', { style: { fontSize: '.8rem', margin: '0 0 8px' } },
-            'Encuadrá un ambiente y la IA lo amuebla respetando la arquitectura real.'),
+            'Encuadrá un ambiente y la IA lo amuebla sin tocar la arquitectura.'),
         !CFG.ai.image ? h('span.chip.warn', {}, 'configurá INMO3D_IMAGE_PROVIDER') :
             h('div', { style: { display: 'flex', gap: '6px' } }, stageStyle, stageBtn),
         stageOut),
@@ -612,20 +611,7 @@ const toolbar = h('div.toolbar', {},
     viewer.vrAvailable() && h('button.btn.sm', {
         onclick: () => viewer.startVR().catch(e => toast(e.message, true))
     }, '🥽 VR'),
-    h('button.btn.sm', {
-        onclick: (e) => {
-            const on = !viewer.state.autoRotate;
-            viewer.setAutoRotate(on);
-            e.target.classList.toggle('on', on);
-        }
-    }, '🔄'),
-    sheet(right, '📐', 'Medidas y herramientas'),
-    !minimal && h('button.btn.sm.ghost', {
-        onclick: () => {
-            left.classList.toggle('hide');
-            right.classList.toggle('hide');
-        }
-    }, '👁'));
+    sheet(right, '📐', 'Medidas y herramientas'));
 overlay.append(toolbar);
 
 // Atajos de teclado: los que espera cualquiera que use un visor 3D.

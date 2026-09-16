@@ -26,8 +26,8 @@ export const blobVars = () => Object.keys(process.env)
 /** En Vercel sin Blob Store no hay dónde escribir: mejor decirlo claro y temprano. */
 export function assertWritable() {
     if (onVercel && !isBlob) {
-        throw new Error('Este deploy no tiene almacenamiento. Creá un Blob Store en Vercel ' +
-            '(Storage → Create Database → Blob) y conectalo al proyecto.');
+        throw Object.assign(new Error('Este deploy no tiene almacenamiento. Creá un Blob Store en ' +
+            'Vercel (Storage → Create Database → Blob) y conectalo al proyecto.'), { status: 503 });
     }
 }
 

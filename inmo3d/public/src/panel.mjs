@@ -234,11 +234,6 @@ function sectionScene(prop) {
     const barBox = h('div.bar', {}, bar);
     const status = h('div.dim', { style: { fontSize: '.82rem', margin: '8px 0' } });
     const log = h('pre.log.hide');
-    const opts = {
-        sfm: h('select', {}, ['glomap', 'colmap'].map(o => h('option', {}, o))),
-        trainer: h('select', {}, ['brush', 'opensplat', 'nerfstudio'].map(o => h('option', {}, o))),
-        steps: h('input', { type: 'number', value: 15000, step: 1000 })
-    };
 
     const paint = (job, running, text) => {
         bar.style.width = `${job?.progress || 0}%`;
@@ -273,10 +268,7 @@ function sectionScene(prop) {
     const run = h('button.btn.primary', { disabled: !CFG.canReconstruct });
     run.textContent = '🧱 Reconstruir en 3D';
     run.onclick = busy(run, async () => {
-        await api(`/properties/${prop.id}/reconstruct`, {
-            method: 'POST',
-            body: { sfm: opts.sfm.value, trainer: opts.trainer.value, steps: Number(opts.steps.value) }
-        });
+        await api(`/properties/${prop.id}/reconstruct`, { method: 'POST', body: {} });
         toast('Arrancó la reconstrucción. Puede tardar de minutos a horas.');
         poll();
     });
@@ -314,14 +306,9 @@ function sectionScene(prop) {
     return h('div', { class: `card ${prop.scene.splatUrl ? 'ok' : ''}` },
         h('h2', {}, prop.scene.splatUrl ? '✅ Escena 3D' : '🧊 Escena 3D'),
         h('p.dim', { style: { marginTop: 0, fontSize: '.85rem' } },
-            'Las fotos se convierten en una nube de Gaussians con COLMAP + un entrenador 3DGS, y se comprimen a ',
-            h('code.mono', {}, '.sog'), ', el formato que este motor carga con streaming y LOD.'),
+            'Las fotos se convierten en la nube de puntos que recorrés en el tour.'),
         !CFG.canReconstruct && h('p.chip.warn', {},
             'Este deploy no puede reconstruir (necesita COLMAP y GPU): entrená local o en Docker y subí el .sog'),
-        h('div.row3', {},
-            h('div', {}, h('label', {}, 'SfM'), opts.sfm),
-            h('div', {}, h('label', {}, 'Entrenador'), opts.trainer),
-            h('div', {}, h('label', {}, 'Pasos'), opts.steps)),
         h('div', { style: { display: 'flex', gap: '8px', margin: '14px 0 10px', flexWrap: 'wrap' } },
             run,
             h('button.btn', { onclick: () => up.click() }, '⬆ Subir splat ya entrenado'), up,
@@ -362,7 +349,7 @@ function sectionAI(prop, save) {
         h('h2', {}, '🤖 IA generativa'),
         !CFG.ai.text && h('p.chip.warn', {}, 'Falta ANTHROPIC_API_KEY: cargala en inmo3d/.env'),
         h('p.dim', { style: { marginTop: '4px', fontSize: '.85rem' } },
-            'Mira las fotos y devuelve trabajo terminado: qué falta fotografiar, cómo se llama cada ambiente y el aviso listo para publicar.'),
+            'Mira las fotos y devuelve trabajo terminado.'),
         h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '10px 0' } },
             btn('🔍 Auditar captura', 'audit', r => (prop.ai.audit = r)),
             btn('🚪 Detectar ambientes', 'rooms', r => (prop.ai.rooms = r)),
@@ -530,8 +517,8 @@ async function route() {
 function accessCard() {
     const card = h('div.card', { style: { marginBottom: '16px' } }, h('h2', {}, 'Acceso de administración'));
     if (!CFG.auth.configured) {
-        card.append(h('p', {}, 'Modo de consulta. Para habilitar la edición, configurá INMO3D_ADMIN_TOKEN ' +
-            '(clave aleatoria de al menos 32 caracteres) en Vercel y volvé a desplegar.'));
+        card.append(h('p', {}, 'Modo de consulta. Para editar, configurá INMO3D_ADMIN_TOKEN ' +
+            'en Vercel y volvé a desplegar.'));
         return card;
     }
     const password = h('input', { type: 'password', autocomplete: 'current-password', placeholder: 'Clave de administración', 'aria-label': 'Clave de administración' });

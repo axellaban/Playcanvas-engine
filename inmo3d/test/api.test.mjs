@@ -53,7 +53,7 @@ test('HTTP routing, property lifecycle and administrative sessions', async (t) =
 
     await t.test('Vercel fails closed without an admin key, including short keys', async () => {
         process.env.VERCEL = '1';
-        for (const value of ['', 'short']) {
+        for (const value of ['', 'abc']) {
             process.env.INMO3D_ADMIN_TOKEN = value;
             assert.equal((await request('/api/config')).data.auth.authenticated, false);
             assert.equal((await request('/api/properties', 'POST', {})).status, 503);

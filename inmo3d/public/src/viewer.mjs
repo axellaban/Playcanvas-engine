@@ -80,7 +80,6 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
     // Los ids por splat son los que permiten "tocar" la nube con el Picker.
     app.scene.gsplat.enableIds = true;
     app.scene.gsplat.alphaClip = 0.2;
-    app.scene.exposure = scene.exposure ?? 1;
 
     // ------------------------------------------------------------------ splat
     const file = await download(splatUrl, onProgress);
@@ -139,7 +138,6 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
         floorY: scene.floorY ?? (aabb ? aabb.getMin().y + 0.02 : 0),
         eyeHeight: scene.eyeHeight ?? 1.62,
         metersPerUnit: scene.metersPerUnit ?? 1,
-        autoRotate: !!scene.autoRotate,
         tween: null,
         walk: { yaw: 0, pitch: 0, keys: new Set() }
     };
@@ -164,17 +162,25 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
      * dibujó, la lectura vuelve vacía aunque ahí sí haya superficie. Pasaba una de cada
      * varias veces y hacía perder el primer punto de una medición, así que reintenta.
      */
-    async function pickWorld(clientX, clientY, intentos = 3) {
+    // Alrededor del píxel exacto, en espiral: primero el centro, después los vecinos.
+    const VECINOS = [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2], [3, 3], [-3, 3], [3, -3], [-3, -3]];
+
+    async function pickWorld(clientX, clientY, intentos = 2) {
         const rect = canvas.getBoundingClientRect();
         const s = 0.25;   // a cuarto de resolución: alcanza y sobra, y es 16x más barato
         const x = (clientX - rect.left) * s;
         const y = (clientY - rect.top) * s;
+        const w = Math.max(1, rect.width * s), hgt = Math.max(1, rect.height * s);
         for (let i = 0; i < intentos; i++) {
             if (i) await nextFrame();
-            picker.resize(Math.max(1, rect.width * s), Math.max(1, rect.height * s));
+            picker.resize(w, hgt);
             picker.prepare(camera.camera, app.scene, [app.scene.layers.getLayerByName('World')]);
-            const p = await picker.getWorldPointAsync(x, y);
-            if (p) return p;
+            for (const [dx, dy] of VECINOS) {
+                const px = x + dx, py = y + dy;
+                if (px < 0 || py < 0 || px >= w || py >= hgt) continue;
+                const p = await picker.getWorldPointAsync(px, py);
+                if (p) return p;
+            }
         }
         return null;
     }
@@ -253,13 +259,6 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
             p.y = state.floorY + state.eyeHeight / (state.metersPerUnit || 1);
             camera.setPosition(p);
             camera.setEulerAngles(pitch, yaw, 0);
-        } else if (state.autoRotate && controls.enabled) {
-            const p = camera.getPosition().clone().sub(center);
-            const a = 0.12 * dt;
-            const x = p.x * Math.cos(a) - p.z * Math.sin(a);
-            const z = p.x * Math.sin(a) + p.z * Math.cos(a);
-            camera.setPosition(center.x + x, camera.getPosition().y, center.z + z);
-            camera.lookAt(center);
         }
     });
 
@@ -358,9 +357,6 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
         startVR,
         applyTransform,
         vrAvailable: () => !!app.xr?.isAvailable(XRTYPE_VR),
-        setExposure: (v) => {
-            app.scene.exposure = v;
-        },
         setFloor: (y) => {
             state.floorY = y;
         },
@@ -369,9 +365,6 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
         },
         setMeters: (m) => {
             state.metersPerUnit = m;
-        },
-        setAutoRotate: (b) => {
-            state.autoRotate = b;
         },
         /**
          * Distancia real entre dos puntos, aplicando la calibración métrica.

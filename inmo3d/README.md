@@ -59,7 +59,8 @@ gastar horas de GPU.
 
 ### 2. Reconstruir
 
-Botón **🧱 Reconstruir en 3D**. Por atrás corre [`pipeline/reconstruct.sh`](pipeline/README.md):
+Botón **🧱 Reconstruir en 3D** (con los valores por defecto; para elegir SfM, entrenador o pasos,
+usá las variables de entorno o el script directo). Por atrás corre [`pipeline/reconstruct.sh`](pipeline/README.md):
 COLMAP o GLOMAP resuelven las poses de cámara, un entrenador de Gaussian Splatting genera la nube, y
 `@playcanvas/splat-transform` la comprime al `.sog` que este motor carga nativo. El panel muestra
 etapa, progreso y log en vivo.
@@ -74,7 +75,7 @@ En el visor, con la escena cargada:
 
 | Herramienta | Para qué |
 |---|---|
-| 🧭 **Enderezar escena** | Los escaneos salen con la orientación de la cámara, no de la casa. Girás hasta que el piso quede horizontal. |
+| 🧭 **Enderezar escena** | Los escaneos salen con la orientación de la cámara, no de la casa: girás hasta que el piso quede horizontal. |
 | ⬇ **Piso** | Un click en el suelo fija la altura de caminata. |
 | 📐 **Calibrar** | Marcás dos puntos de algo que sepas cuánto mide (una puerta = 2,05 m) y **todas las medidas pasan a ser metros reales**. La fotogrametría no tiene escala propia: sin este paso las distancias son relativas. |
 | 🎯 **Ubicar paradas** | Te parás donde querés que arranque cada parada y hacés click en lo que tiene que mirar. |
@@ -114,24 +115,31 @@ El motor y sus scripts usan la versión publicada `2.23.0-beta.9`, igual que est
    - **Access: `Public`** — el visor pide el splat y las fotos por URL desde el navegador. Con un
      store privado cada archivo pediría token y no se vería nada. Contrapartida: cualquiera con la
      URL exacta accede a ese archivo, igual que cuando compartís el link de un tour.
-   - **Credencial**: el SDK se autentica con `BLOB_READ_WRITE_TOKEN`, o con `BLOB_STORE_ID` más el
-     `VERCEL_OIDC_TOKEN` que Vercel inyecta si el proyecto tiene OIDC habilitado. Lo seguro es
-     tener el token: tildá `Add a read-write token env var` al conectar el store, o copialo del
-     store y pegalo como variable del proyecto. **Sólo con el token funciona la subida directa
-     navegador → Blob**, que es la que aguanta splats de más de 4,5 MB.
+   - **Credencial**: tildá `Add a read-write token env var` al conectar el store. Sin
+     `BLOB_READ_WRITE_TOKEN` la app igual anda (le alcanza `BLOB_STORE_ID` + OIDC), pero las
+     subidas pasan por la función y ahí el techo son 4,5 MB: corto para un splat.
 
    Después: **Connect Project** y un **Redeploy** para que el deploy tome la variable.
-3. **Environment Variables**: `ANTHROPIC_API_KEY`, y `GEMINI_API_KEY` (o `OPENAI_API_KEY`) con
-   `INMO3D_IMAGE_PROVIDER` si querés home staging. Agregá también `INMO3D_ADMIN_TOKEN`, una
-   clave aleatoria de al menos 32 caracteres (distinta de tus API keys). Deploy.
+3. **Environment Variables**: `INMO3D_ADMIN_TOKEN` (tu clave para entrar al panel),
+   `ANTHROPIC_API_KEY`, y `GEMINI_API_KEY` + `INMO3D_IMAGE_PROVIDER=gemini` si querés staging. Deploy.
 
-En el panel, ingresá con esa clave para editar, subir archivos y usar IA. La sesión dura 12 horas
-y se guarda en una cookie HttpOnly, Secure en Vercel y SameSite=Strict. No va a localStorage.
-Sin una clave válida configurada, Vercel queda **sólo lectura**: se pueden consultar propiedades
-y tours, pero la API rechaza las escrituras y llamadas a IA. Rotar la variable invalida todas las
-sesiones. En local, la clave es opcional; si exponés el servidor fuera de tu máquina, configurala.
-Los tours públicos muestran las mediciones del propietario; las nuevas medidas de un visitante
-son temporales y no modifican la propiedad. El staging y el chat de IA requieren sesión de administrador.
+### La clave de administración
+
+Mínimo 6 caracteres, así podés acordártela. Es corta a propósito, y por eso hay dos defensas
+detrás: la clave que firma la sesión se deriva con **scrypt** (adivinarla desde una cookie robada
+cuesta caro, no barato) y el login se **frena a los 5 intentos fallidos** por 15 minutos. Aun así,
+una frase de tres o cuatro palabras es igual de fácil de recordar y mucho más difícil de adivinar.
+
+La sesión dura 12 horas en una cookie `HttpOnly`, `SameSite=Strict` y `Secure` en Vercel — nunca
+en `localStorage`. Cambiar la variable invalida todas las sesiones abiertas. Sin clave configurada,
+el deploy queda **sólo lectura**. En local la clave es opcional.
+
+**Qué ve cada uno:** el listado de propiedades exige sesión. Cada tour se abre con su link, sin
+clave, y ahí el visitante navega y mide, pero sus medidas son temporales: no tocan la propiedad.
+Staging y chat de IA piden sesión.
+
+> El freno de intentos vive en memoria del proceso. En serverless, con varias instancias, protege
+> menos que en un servidor propio: es una barrera, no una garantía.
 
 Qué cambia respecto de correrlo local:
 
@@ -160,6 +168,7 @@ npm install          # sólo hace falta para la IA (@anthropic-ai/sdk)
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Texto y visión: auditoría, ambientes, aviso, chat |
 | `INMO3D_TEXT_MODEL` | `claude-opus-5` | Modelo de Claude |
+| `INMO3D_ADMIN_TOKEN` | — | Clave del panel (mínimo 6). Sin ella, el deploy es sólo lectura |
 | `INMO3D_EFFORT` | `medium` | Cuánto razona el modelo: `low` … `max`. Más = mejor y más caro |
 | `INMO3D_IMAGE_PROVIDER` | `gemini` | Home staging: `gemini`, `openai` o `none` |
 | `GEMINI_API_KEY` / `OPENAI_API_KEY` | — | Según el proveedor elegido |
@@ -255,6 +264,6 @@ Para que nadie se lleve una sorpresa:
 
 ## Verificación
 
-`npm test` dentro de `inmo3d/` prueba el handler HTTP real: rutas anidadas, alta/lectura/edición,
-sesión, rechazo de escrituras anónimas, CSRF y respuestas JSON. Usa datos temporales aislados.
-Después de instalar las dependencias de la raíz, `npm run lint` dentro de `inmo3d/` revisa la app.
+`npm test` levanta el handler HTTP real y cubre lo que no puede romperse: rutas, alta y edición,
+sesión con clave corta y su freno de intentos, rechazo de escrituras anónimas, CSRF, el contrato
+de privacidad (cartera privada / tour público) y que subir fotos en paralelo no pierda ninguna.
