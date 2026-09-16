@@ -9,6 +9,8 @@
 // con el movimiento. Se calcula sobre una versión chiquita en gris, que es barato y da
 // igual de bien. Después se extrae en alta sólo lo elegido.
 import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 const ANCHO = 160;
 const ALTO = 120;
@@ -78,9 +80,6 @@ const correr = (args, alSalir) => new Promise((resolve, reject) => {
         reject(Object.assign(new Error(`ffmpeg falló: ${error.slice(-500)}`), { salida: error }))));
 });
 
-/** Una opción que ffmpeg no conoce: pasa con las que cambiaron de nombre entre versiones. */
-export const opcionDesconocida = mensaje => /Unrecognized option|Option not found|Unknown option/i.test(mensaje || '');
-
 /** Mide la nitidez de todos los cuadros del video, a `fps` por segundo. */
 export async function medir(video, fps = 6) {
     const tamano = ANCHO * ALTO;
@@ -99,26 +98,39 @@ export async function medir(video, fps = 6) {
     return puntajes;
 }
 
-/** Extrae en alta resolución sólo los cuadros elegidos. */
-export async function extraer(video, indices, destino, { fps = 6, ancho = 1800 } = {}) {
-    if (!indices.length) throw new Error('El video no dejó ningún cuadro utilizable.');
-    const seleccion = indices.map(i => `eq(n\\,${i})`).join('+');
-    const base = [
-        '-hide_banner', '-loglevel', 'error', '-i', video,
-        '-vf', `fps=${fps},select='${seleccion}',scale='min(${ancho},iw)':-2`
-    ];
-    const salida = ['-q:v', '2', `${destino}/cuadro-%04d.jpg`];
+/**
+ * Los argumentos para sacar los cuadros. Lo importante es que son fijos: no crecen ni un
+ * carácter con la cantidad de cuadros que queramos.
+ */
+export const argumentosExtraer = (video, destino, { fps = 6, ancho = 1800 } = {}) => [
+    '-hide_banner', '-loglevel', 'error', '-i', video,
+    '-vf', `fps=${fps},scale='min(${ancho},iw)':-2`,
+    '-q:v', '2', `${destino}/cuadro-%04d.jpg`
+];
 
-    // Sin esto ffmpeg rellena los huecos que deja `select` duplicando cuadros. La opción
-    // cambió de nombre: `-vsync` en las versiones viejas, `-fps_mode` desde la 5.1, y las
-    // nuevas ya ni reconocen la vieja. Probamos la actual y caemos a la anterior.
-    try {
-        await correr([...base, '-fps_mode', 'passthrough', ...salida], () => {});
-    } catch (e) {
-        if (!opcionDesconocida(e.salida)) throw e;
-        await correr([...base, '-vsync', '0', ...salida], () => {});
+/** Borra los cuadros que no quedaron elegidos. Devuelve cuántos sobrevivieron. */
+export async function depurar(destino, indices) {
+    const queremos = new Set(indices);
+    let quedan = 0;
+    for (const archivo of await fs.readdir(destino)) {
+        const m = /^cuadro-(\d+)\.jpg$/.exec(archivo);
+        if (!m) continue;
+        // ffmpeg numera desde 1; la nitidez se midió desde 0.
+        if (queremos.has(Number(m[1]) - 1)) quedan++;
+        else await fs.unlink(path.join(destino, archivo));
     }
-    return indices.length;
+    return quedan;
+}
+
+/** Extrae en alta resolución y se queda sólo con los cuadros elegidos. */
+export async function extraer(video, indices, destino, opciones = {}) {
+    if (!indices.length) throw new Error('El video no dejó ningún cuadro utilizable.');
+    // Sacamos todos y después borramos. Pedirle a ffmpeg nada más que los elegidos parece más
+    // prolijo, pero esa lista lleva un término por cuadro: con noventa entraba y con ciento
+    // cincuenta el filtro se volvía tan largo que ffmpeg no lo podía ni construir, y el trabajo
+    // moría recién después de haber medido el video entero. Sobran unos segundos de escritura.
+    await correr(argumentosExtraer(video, destino, opciones), () => {});
+    return depurar(destino, indices);
 }
 
 /** Todo junto: del video a una carpeta con las mejores fotos. */
@@ -128,6 +140,6 @@ export async function desdeVideo(video, destino, { objetivo, fps = 6, alAvanzar 
     if (!puntajes.length) throw new Error('No pude leer el video. ¿Está completo?');
     const elegidos = elegir(puntajes, objetivo ?? cuantosCuadros(puntajes.length, fps));
     alAvanzar?.(`${elegidos.length} cuadros elegidos de ${puntajes.length}`);
-    await extraer(video, elegidos, destino, { fps });
-    return { total: puntajes.length, elegidos: elegidos.length };
+    const quedaron = await extraer(video, elegidos, destino, { fps });
+    return { total: puntajes.length, elegidos: quedaron };
 }

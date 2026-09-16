@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { nitidez, elegir, opcionDesconocida, cuantosCuadros } from '../tools/fotogramas.mjs';
+import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { nitidez, elegir, cuantosCuadros, argumentosExtraer, depurar } from '../tools/fotogramas.mjs';
 
 const ANCHO = 160, ALTO = 120;
 
@@ -63,12 +66,25 @@ test('la cantidad de cuadros sale de cuánto dura el video', () => {
     assert.equal(cuantosCuadros(6000), 200, 'y uno larguísimo tiene techo: comparar crece al cuadrado');
 });
 
-test('reconoce cuando ffmpeg no entiende una opción', () => {
-    // Las versiones nuevas sacaron `-vsync` y las viejas no tienen `-fps_mode`: extraer()
-    // prueba una y cae a la otra, pero sólo si sabe distinguir ese error de uno real.
-    for (const m of ['Unrecognized option \'vsync\'.', 'Option not found', 'Unknown option fps_mode']) {
-        assert.ok(opcionDesconocida(m), `tendría que reconocer: ${m}`);
+test('los argumentos de ffmpeg no crecen con la cantidad de cuadros', () => {
+    // Antes se le pasaba la lista de elegidos dentro del filtro `select`, con un término por
+    // cuadro. Con noventa entraba; con ciento cincuenta ffmpeg ya no podía ni construir el
+    // filtro, y el trabajo moría recién después de haber medido el video entero.
+    const args = argumentosExtraer('/tmp/v.mp4', '/tmp/salida').join(' ');
+    assert.doesNotMatch(args, /eq\(n/, 'nada de listas de cuadros adentro del filtro');
+    assert.ok(args.length < 200, `tienen que ser cortos y fijos, y miden ${args.length}`);
+});
+
+test('depurar deja sólo los cuadros elegidos y no toca nada más', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'inmo3d-cuadros-'));
+    for (let i = 1; i <= 10; i++) {
+        await writeFile(path.join(dir, `cuadro-${String(i).padStart(4, '0')}.jpg`), '');
     }
-    assert.ok(!opcionDesconocida('No such file or directory'), 'un video que falta no es una opción vieja');
-    assert.ok(!opcionDesconocida(undefined), 'sin mensaje no se asume nada');
+    await writeFile(path.join(dir, 'recorrido.mp4'), '');
+
+    // Los puntajes se miden desde 0 y ffmpeg numera desde 1: el 0 es cuadro-0001.
+    const quedan = await depurar(dir, [0, 4, 9]);
+    assert.equal(quedan, 3);
+    assert.deepEqual((await readdir(dir)).sort(),
+        ['cuadro-0001.jpg', 'cuadro-0005.jpg', 'cuadro-0010.jpg', 'recorrido.mp4']);
 });
