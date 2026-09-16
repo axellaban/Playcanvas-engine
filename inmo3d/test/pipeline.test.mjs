@@ -29,8 +29,17 @@ done
 [[ " $* " == *" --help "* ]] && { echo "Options:"; exit 0; }
 case "$sub" in
   mapper) for a in "$@"; do [[ -n "\${cap:-}" ]] && mkdir -p "$a/0" && unset cap; [[ "$a" == "--output_path" ]] && cap=1; done ;;
-  image_undistorter) for a in "$@"; do [[ -n "\${cap:-}" ]] && mkdir -p "$a/sparse/0" && unset cap; [[ "$a" == "--output_path" ]] && cap=1; done ;;
-  model_analyzer) echo "Images: 25" ;;
+  # El de verdad deja el modelo suelto en sparse/, no en sparse/0: de ahí salía el bug.
+  image_undistorter) for a in "$@"; do
+      [[ -n "\${cap:-}" ]] && { mkdir -p "$a/sparse"; : > "$a/sparse/cameras.bin"; : > "$a/sparse/images.bin"; unset cap; }
+      [[ "$a" == "--output_path" ]] && cap=1
+    done ;;
+  # Y si le dan una carpeta que no existe, falla: así el test nota si nadie acomodó el modelo.
+  model_analyzer) for a in "$@"; do
+      [[ -n "\${cap:-}" ]] && { [[ -d "$a" ]] || { echo "ERROR: modelo inexistente" >&2; exit 1; }; unset cap; }
+      [[ "$a" == "--path" ]] && cap=1
+    done
+    echo "Images: \${INMO3D_TEST_REGISTRADAS:-25}" ;;
 esac
 exit 0
 `;
@@ -73,7 +82,25 @@ test('el pipeline llega al .sog con un COLMAP sin soporte de GPU', async () => {
     await access(path.join(salida, 'model.sog'));
     assert.match(stdout, /::step:listo/, 'tendría que anunciar todas las etapas hasta el final');
     assert.match(stdout, /sin soporte de GPU/, 'y avisar que cae a CPU');
+    // Si el modelo no quedó en sparse/0, model_analyzer falla y acá aparecería un "?".
+    assert.match(stdout, /Fotos ubicadas en el modelo: 25 de 25/, 'y dejar el modelo donde se lo busca');
     assert.ok(base);
+});
+
+test('con medio modelo afuera corta antes de entrenar', async () => {
+    // COLMAP puede terminar con código 0 habiendo ubicado cuatro fotos de veinticinco: arma
+    // lo que puede y descarta el resto sin quejarse. Entrenar eso son horas para nada.
+    const { bin, fotos, salida } = await preparar();
+    await assert.rejects(
+        correr('bash', [
+            path.join(RAIZ, 'pipeline', 'reconstruct.sh'),
+            '--photos', fotos, '--out', salida, '--sfm', 'colmap'
+        ], { cwd: RAIZ, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, INMO3D_TEST_REGISTRADAS: '4' } }),
+        (e) => {
+            assert.match(e.stderr, /ubicar 4 de 25/, 'tendría que decir cuántas entraron');
+            assert.doesNotMatch(e.stdout, /::step:entrenando/, 'y no llegar nunca a entrenar');
+            return true;
+        });
 });
 
 test('sin fotos suficientes falla temprano y lo dice', async () => {

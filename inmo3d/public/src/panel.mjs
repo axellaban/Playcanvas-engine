@@ -203,8 +203,11 @@ function sectionPhotos(prop, save) {
                     'Ajustes → Cámara → Grabar video → 1080p HD/30 fps.'),
                 h('li', {}, h('b', {}, '1 a 2 minutos por ambiente.'), ' Más largo no suma: se toman ' +
                     '80 cuadros igual, sólo tarda más en subir.'),
-                h('li', {}, h('b', {}, 'Caminá despacio'), ', sin giros bruscos. El movimiento rápido sale ' +
-                    'movido y esos cuadros se descartan.'),
+                h('li', {}, h('b', {}, 'Caminá despacio'), ', sin giros bruscos, y no saques de cuadro de ' +
+                    'golpe lo que venías mostrando: cada momento tiene que compartir buena parte con el ' +
+                    'anterior. Así es como se enganchan entre sí para armar el 3D.'),
+                h('li', {}, h('b', {}, 'Prendé todas las luces.'), ' Las paredes lisas y los rincones oscuros ' +
+                    'no dan puntos de referencia, y son las partes que se quedan afuera del modelo.'),
                 h('li', {}, h('b', {}, 'Bloqueá foco y exposición'), ' antes de empezar: mantené el dedo ' +
                     'sobre una pared hasta que diga AE/AF LOCK.'),
                 h('li', {}, 'Recorré bordeando el ambiente apuntando al centro, y después desde el centro ' +
