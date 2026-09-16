@@ -152,6 +152,10 @@ function sectionPhotos(prop, save) {
     // cuadros nítidos. Las fotos dan mejor resultado, pero cuestan más de sacar.
     const estadoVideo = h('div', { style: { fontSize: '.82rem', marginTop: '8px' } },
         prop.video ? h('span.chip.ok', {}, `🎬 video cargado (${(prop.video.bytes / 1e6).toFixed(0)} MB)`) : '');
+    // Cuánto video aguanta este deploy. Con subida directa al Blob, 1 GB; si no, el
+    // archivo pasa por la función y ahí manda el límite de Vercel.
+    const topeMB = CFG.clientUpload ? 1000 : (CFG.vercel ? 4 : 60);
+
     const fromVideo = h('input', {
         type: 'file',
         accept: 'video/*',
@@ -159,7 +163,15 @@ function sectionPhotos(prop, save) {
         onchange: async (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            estadoVideo.replaceChildren(h('span.chip.warn', {}, `subiendo ${(file.size / 1e6).toFixed(0)} MB…`));
+            const mb = file.size / 1e6;
+            if (mb > topeMB) {
+                estadoVideo.replaceChildren(h('span.chip.warn', {},
+                    `El video pesa ${mb.toFixed(0)} MB y el tope acá es ${topeMB} MB. ${
+                        CFG.clientUpload ? 'Grabá menos tiempo o en 1080p.' :
+                            'Falta BLOB_READ_WRITE_TOKEN para subir archivos grandes.'}`));
+                return;
+            }
+            estadoVideo.replaceChildren(h('span.chip.warn', {}, `subiendo ${mb.toFixed(0)} MB…`));
             try {
                 const up = await putFile(prop.id, 'video', file);
                 prop.video = up;
@@ -182,9 +194,25 @@ function sectionPhotos(prop, save) {
         h('button.btn.sm', { onclick: () => fromCamera.click() }, '📷 Sacar una foto')),
         fromCamera, fromGallery, fromVideo,
         estadoVideo,
-        h('div', { style: { marginTop: '8px' } }, h('small', {},
-            'Lo más cómodo: grabá un video caminando despacio por el ambiente, 1-2 minutos. ' +
-            'De ahí se eligen solos los cuadros nítidos. Con fotos sale mejor, pero son 80-200 tomas.')));
+        h('details', { style: { marginTop: '10px', textAlign: 'left' } },
+            h('summary', { style: { cursor: 'pointer', fontSize: '.84rem', fontWeight: '650' } },
+                'Cómo grabar (leelo una vez)'),
+            h('ul', { style: { fontSize: '.82rem', paddingLeft: '18px', margin: '8px 0 0', lineHeight: '1.7' } },
+                h('li', {}, h('b', {}, '1080p, 30 fps.'), ' Grabar en 4K no mejora nada: los cuadros se ' +
+                    'reducen a 1800 px igual, y el archivo pesa cuatro veces más. En iPhone: ' +
+                    'Ajustes → Cámara → Grabar video → 1080p HD/30 fps.'),
+                h('li', {}, h('b', {}, '1 a 2 minutos por ambiente.'), ' Más largo no suma: se toman ' +
+                    '80 cuadros igual, sólo tarda más en subir.'),
+                h('li', {}, h('b', {}, 'Caminá despacio'), ', sin giros bruscos. El movimiento rápido sale ' +
+                    'movido y esos cuadros se descartan.'),
+                h('li', {}, h('b', {}, 'Bloqueá foco y exposición'), ' antes de empezar: mantené el dedo ' +
+                    'sobre una pared hasta que diga AE/AF LOCK.'),
+                h('li', {}, 'Recorré bordeando el ambiente apuntando al centro, y después desde el centro ' +
+                    'hacia afuera.'),
+                h('li', {}, h('b', {}, 'Pesa'), ` unos 60-90 MB por minuto en 1080p. Tope acá: ${topeMB} MB.`)),
+            h('p.dim', { style: { fontSize: '.8rem', margin: '10px 0 0' } },
+                'Con fotos el resultado es mejor —cada una es nítida a propósito y a plena resolución— ' +
+                'pero son 80-200 tomas. El video es el camino cómodo.')));
 
     drop.addEventListener('dragover', (e) => {
         e.preventDefault();
