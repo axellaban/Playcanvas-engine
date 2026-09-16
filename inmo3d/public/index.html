@@ -3,16 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Inmo3D — fotos a tour 3D con IA</title>
+<meta name="theme-color" content="#f6f6f3">
+<title>Inmo3D — tours 3D para propiedades</title>
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/redesign.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>">
 </head>
 <body>
 <header class="top">
-  <div class="brand">🏡 Inmo<b>3D</b></div>
-  <span class="chip" id="ai-state">…</span>
+  <div class="brand">Inmo3D</div>
+  <span id="ai-state" hidden></span>
   <div class="spacer"></div>
-  <a class="btn ghost sm" href="https://github.com/playcanvas/engine" target="_blank" rel="noopener">motor: PlayCanvas</a>
   <button class="btn primary sm" id="new-prop">+ Nueva propiedad</button>
 </header>
 <main class="wrap" id="view"></main>

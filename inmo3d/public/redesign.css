@@ -1,0 +1,311 @@
+/* Inmo3D — product UI refinement
+   Visual-only layer: simplifies the admin, reduces decorative noise and keeps the tour immersive. */
+
+:root {
+  --product-bg: #f6f6f3;
+  --product-surface: #ffffff;
+  --product-surface-soft: #f0f1ed;
+  --product-line: #e4e5df;
+  --product-text: #1b1d1f;
+  --product-muted: #6f7378;
+  --product-accent: #d45b3f;
+  --product-accent-hover: #bd4e35;
+  --product-success: #17895f;
+  --product-warning: #a96f16;
+  --product-danger: #c84b4b;
+  --product-radius: 14px;
+  --product-radius-sm: 10px;
+  --product-shadow: 0 1px 2px rgba(22, 24, 26, .04), 0 8px 24px rgba(22, 24, 26, .06);
+}
+
+/* ---------------------------------------------------------------- backoffice */
+body:not(:has(.viewer)) {
+  --bg: var(--product-bg);
+  --bg2: var(--product-surface);
+  --card: var(--product-surface);
+  --card2: var(--product-surface-soft);
+  --line: var(--product-line);
+  --txt: var(--product-text);
+  --dim: var(--product-muted);
+  --accent: var(--product-accent);
+  --accent2: var(--product-accent);
+  --ok: var(--product-success);
+  --warn: var(--product-warning);
+  --danger: var(--product-danger);
+  --grad: var(--product-accent);
+  --grad-ai: var(--product-accent);
+  --grad-ok: var(--product-success);
+  --ink: #fff;
+  --radius: var(--product-radius);
+  --radius-sm: var(--product-radius-sm);
+  --shadow: var(--product-shadow);
+  --shadow-lift: 0 2px 5px rgba(22, 24, 26, .05), 0 14px 34px rgba(22, 24, 26, .09);
+
+  background: var(--product-bg);
+  color: var(--product-text);
+}
+
+body:not(:has(.viewer)) header.top {
+  min-height: 64px;
+  padding: 12px 24px;
+  background: rgba(255, 255, 255, .92);
+  border-bottom: 1px solid var(--product-line);
+  backdrop-filter: blur(16px);
+}
+
+body:not(:has(.viewer)) .brand {
+  font-size: 1.08rem;
+  font-weight: 760;
+  letter-spacing: -.035em;
+  color: var(--product-text);
+}
+
+body:not(:has(.viewer)) .brand b {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: inherit;
+}
+
+body:not(:has(.viewer)) .wrap {
+  max-width: 1160px;
+  padding-top: 34px;
+}
+
+body:not(:has(.viewer)) h1 {
+  font-size: 1.8rem;
+  letter-spacing: -.04em;
+}
+
+body:not(:has(.viewer)) h2 {
+  font-size: 1.08rem;
+}
+
+body:not(:has(.viewer)) .card {
+  border: 1px solid var(--product-line);
+  box-shadow: var(--product-shadow);
+  overflow: visible;
+}
+
+body:not(:has(.viewer)) .card::before {
+  display: none;
+}
+
+body:not(:has(.viewer)) article.card:hover {
+  transform: translateY(-2px);
+  border-color: #d6d7d0;
+}
+
+body:not(:has(.viewer)) .thumb {
+  border: 0;
+  background-color: #ecece7;
+}
+
+body:not(:has(.viewer)) .btn {
+  min-height: 40px;
+  font-size: .86rem;
+  font-weight: 650;
+  border-radius: 10px;
+  box-shadow: none;
+  transition: background .14s, border-color .14s, color .14s, transform .14s;
+}
+
+body:not(:has(.viewer)) .btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: none;
+}
+
+body:not(:has(.viewer)) .btn.primary,
+body:not(:has(.viewer)) .btn.on {
+  background: var(--product-accent);
+  border-color: var(--product-accent);
+  color: #fff;
+  box-shadow: none;
+}
+
+body:not(:has(.viewer)) .btn.primary:hover:not(:disabled),
+body:not(:has(.viewer)) .btn.on:hover:not(:disabled) {
+  background: var(--product-accent-hover);
+  border-color: var(--product-accent-hover);
+  box-shadow: none;
+}
+
+body:not(:has(.viewer)) .chip {
+  padding: 4px 9px;
+  background: transparent;
+  border-color: var(--product-line);
+  color: var(--product-muted);
+}
+
+body:not(:has(.viewer)) .chip.ok,
+body:not(:has(.viewer)) .chip.warn,
+body:not(:has(.viewer)) .chip.hot,
+body:not(:has(.viewer)) .chip.ai {
+  background: transparent;
+}
+
+body:not(:has(.viewer)) label {
+  margin-top: 14px;
+  font-size: .78rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #676b70;
+}
+
+body:not(:has(.viewer)) input,
+body:not(:has(.viewer)) select,
+body:not(:has(.viewer)) textarea {
+  min-height: 42px;
+  background: #fff;
+  border-color: var(--product-line);
+  color: var(--product-text);
+}
+
+body:not(:has(.viewer)) input:focus,
+body:not(:has(.viewer)) select:focus,
+body:not(:has(.viewer)) textarea:focus {
+  border-color: var(--product-accent);
+  box-shadow: 0 0 0 3px rgba(212, 91, 63, .12);
+}
+
+body:not(:has(.viewer)) .drop {
+  background: #fafaf8;
+  border-color: #d9dad4;
+  padding: 30px 22px;
+}
+
+body:not(:has(.viewer)) .drop.over {
+  background: #fff8f5;
+  border-color: var(--product-accent);
+  transform: none;
+}
+
+body:not(:has(.viewer)) .photos img {
+  border-color: #e7e8e2;
+}
+
+body:not(:has(.viewer)) .bar {
+  height: 6px;
+  background: #ecece7;
+  border: 0;
+}
+
+body:not(:has(.viewer)) .bar > i {
+  background: var(--product-accent);
+}
+
+body:not(:has(.viewer)) .bar.run > i::after {
+  display: none;
+}
+
+body:not(:has(.viewer)) pre.log {
+  border-radius: 10px;
+}
+
+/* ---------------------------------------------------------------- viewer */
+body:has(.viewer) {
+  --accent: #f27655;
+  --accent2: #f27655;
+  --grad: #f27655;
+  --grad-ai: #8f7cf7;
+  --grad-ok: #27b884;
+  background: #07090c;
+}
+
+body:has(.viewer) .panel-l,
+body:has(.viewer) .panel-r,
+body:has(.viewer) .toolbar {
+  border-color: rgba(255, 255, 255, .11);
+  background: rgba(13, 16, 21, .82);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(18px) saturate(1.1);
+}
+
+body:has(.viewer) .btn {
+  border-color: rgba(255, 255, 255, .12);
+  background: rgba(255, 255, 255, .07);
+  box-shadow: none;
+}
+
+body:has(.viewer) .btn.primary,
+body:has(.viewer) .btn.on {
+  background: #f27655;
+  border-color: #f27655;
+  color: #18110e;
+  box-shadow: none;
+}
+
+body:has(.viewer) .chip {
+  background: rgba(255, 255, 255, .06);
+}
+
+body:has(.viewer) .hotspot {
+  width: 34px;
+  height: 34px;
+  animation: none;
+  box-shadow: 0 5px 18px rgba(0, 0, 0, .35);
+}
+
+body:has(.viewer) .hotspot::before {
+  content: '';
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+
+body:has(.viewer) .loader {
+  background: radial-gradient(circle at 50% 40%, #151922 0, #090b0f 52%, #06070a 100%);
+}
+
+body:has(.viewer) #loader-text {
+  font-size: .93rem;
+  letter-spacing: -.01em;
+}
+
+body:has(.viewer) .spin {
+  border-color: rgba(255, 255, 255, .14);
+  border-top-color: #f27655;
+}
+
+body:has(.viewer) #minimap {
+  background: rgba(0, 0, 0, .18);
+}
+
+/* ---------------------------------------------------------------- accessibility */
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 55%, white);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 860px) {
+  body:not(:has(.viewer)) header.top {
+    min-height: 58px;
+    padding: 10px 14px;
+  }
+
+  body:not(:has(.viewer)) .wrap {
+    padding-top: 22px;
+  }
+
+  body:not(:has(.viewer)) .row,
+  body:not(:has(.viewer)) .row3 {
+    grid-template-columns: 1fr;
+  }
+
+  body:has(.viewer) .toolbar {
+    background: rgba(13, 16, 21, .9);
+    border-radius: 14px;
+    padding: 7px;
+  }
+}
