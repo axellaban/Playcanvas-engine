@@ -229,3 +229,18 @@ test('cuando el recorrido se parte en pedazos, agarra el más grande', async () 
     assert.match(stdout, /Fotos ubicadas en el modelo: 18 de 25/, 'el pedazo grande, no el primero');
     await access(path.join(salida, 'model.sog'));
 });
+
+test('con --solo-sfm calcula las cámaras, informa y para antes de entrenar', async () => {
+    // Medir cuánta casa entra cuesta minutos; entrenar cuesta horas. El worker mide primero,
+    // y si entró poco vuelve a sacar cuadros del video antes de gastar esas horas.
+    const { bin, fotos, salida } = await preparar();
+    const { stdout } = await correr('bash', [
+        path.join(RAIZ, 'pipeline', 'reconstruct.sh'),
+        '--photos', fotos, '--out', salida, '--sfm', 'colmap', '--solo-sfm'
+    ], { cwd: RAIZ, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
+
+    assert.match(stdout, /Fotos ubicadas en el modelo: 25 de 25/, 'informa la cobertura');
+    assert.match(stdout, /::step:sfm-listo/, 'y avisa que terminó esa parte');
+    assert.doesNotMatch(stdout, /::step:entrenando/, 'pero no arranca a entrenar');
+    await assert.rejects(access(path.join(salida, 'model.sog')), 'ni deja un resultado final');
+});

@@ -6,12 +6,35 @@ let CFG = { ai: { text: false, image: false }, storage: 'fs', canReconstruct: tr
 
 // ---------------------------------------------------------------- listado
 
+/**
+ * Abre un departamento real escaneado, servido por la propia app. Sirve para dos cosas: ver
+ * cómo se siente un recorrido terminado antes de tener el propio, y mostrárselo a un cliente
+ * sin depender de que haya una reconstrucción lista. Va en una propiedad aparte para no
+ * pisarle la escena a ninguna de verdad.
+ */
+async function verEjemplo(props) {
+    if (!CFG.auth?.authenticated) return toast('Iniciá sesión para ver el ejemplo.', true);
+    const ya = props.find(p => p.meta.title.startsWith('Ejemplo'));
+    const prop = ya || await api('/properties', {
+        method: 'POST', body: { meta: { title: 'Ejemplo: departamento escaneado' } }
+    });
+    await api(`/properties/${prop.id}/attach`, {
+        method: 'POST',
+        body: { kind: 'splat', url: `${location.origin}/ejemplo/departamento.sog` }
+    });
+    location.href = `/tour.html?id=${prop.id}`;
+}
+
 async function renderList() {
     const props = await api('/properties');
+    const ejemplo = h('button.btn.sm', {});
+    ejemplo.textContent = '👀 Ver un ejemplo';
+    ejemplo.onclick = busy(ejemplo, () => verEjemplo(props).catch(e => toast(e.message, true)));
     view.replaceChildren(
         h('div', { style: { display: 'flex', alignItems: 'baseline', gap: '12px', marginBottom: '16px' } },
             h('h1', {}, 'Propiedades'),
-            h('small.dim', {}, `${props.length} en el sistema`)),
+            h('small.dim', {}, `${props.length} en el sistema`),
+            h('span', { style: { marginLeft: 'auto' } }, ejemplo)),
         props.length ? h('div.grid.props', {}, props.map(card)) :
             h('div.card', { style: { textAlign: 'center', padding: '44px 24px' } },
                 h('div', { style: { fontSize: '2.6rem', lineHeight: 1 } }, '🏡'),
@@ -19,8 +42,11 @@ async function renderList() {
                 h('p.dim', { style: { maxWidth: '46ch', margin: '0 auto 18px' } },
                     'El camino es: cargás la ficha, sacás entre 80 y 200 fotos de la casa, ' +
                     'la IA te dice si alcanzan, y sale el tour 3D para compartir por link.'),
-                h('button.btn.primary', { onclick: () => newProperty().catch(e => toast(e.message, true)) },
-                    'Crear la primera'))
+                h('div', { style: { display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' } },
+                    h('button.btn.primary', { onclick: () => newProperty().catch(e => toast(e.message, true)) },
+                        'Crear la primera'),
+                    h('button.btn', { onclick: () => verEjemplo([]).catch(e => toast(e.message, true)) },
+                        '👀 Ver un ejemplo terminado')))
     );
 }
 

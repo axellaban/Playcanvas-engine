@@ -94,11 +94,11 @@ async function bajarFotos(trabajo, dir) {
 }
 
 /** Corre reconstruct.sh y traduce sus etapas en avance para el panel. */
-function reconstruir(trabajo, fotos, salida) {
+function reconstruir(trabajo, fotos, salida, extra = []) {
     const PASOS = { preparando: 15, sfm: 30, entrenando: 60, comprimiendo: 90, listo: 100 };
     // Se puede apuntar a otro script (o a uno de prueba) sin tocar el worker.
     const script = process.env.INMO3D_PIPELINE || path.join(ROOT, 'pipeline', 'reconstruct.sh');
-    const args = [script, '--photos', fotos, '--out', salida];
+    const args = [script, '--photos', fotos, '--out', salida, ...extra];
     for (const [flag, valor] of [['--sfm', trabajo.opciones.sfm], ['--trainer', trabajo.opciones.trainer],
         ['--steps', trabajo.opciones.steps]]) {
         if (valor) args.push(flag, String(valor));
@@ -107,8 +107,10 @@ function reconstruir(trabajo, fotos, salida) {
     return new Promise((resolve, reject) => {
         const hijo = spawn('bash', args, { cwd: ROOT });
         let pendiente = '';
+        let todo = '';
         const salir = async (texto) => {
             process.stdout.write(texto);
+            todo += texto;
             pendiente += texto;
             const etapa = [...texto.matchAll(/::step:(\w+)/g)].pop()?.[1];
             if (etapa || pendiente.length > 500) {
@@ -120,7 +122,8 @@ function reconstruir(trabajo, fotos, salida) {
         hijo.stdout.on('data', b => salir(b.toString()));
         hijo.stderr.on('data', b => salir(b.toString()));
         hijo.on('error', reject);
-        hijo.on('close', code => (code === 0 ? resolve() : reject(new Error(`El pipeline terminó con código ${code}.`))));
+        hijo.on('close', code => (code === 0 ? resolve(todo) :
+            reject(new Error(`El pipeline terminó con código ${code}.`))));
     });
 }
 
@@ -151,26 +154,68 @@ async function subir(trabajo, archivo) {
 }
 
 /** Baja el video y saca de ahí los cuadros nítidos, que hacen de fotos. */
-async function desdeElVideo(trabajo, dir) {
+async function desdeElVideo(trabajo, dir, opciones = {}) {
     await fs.mkdir(dir, { recursive: true });
     const destino = path.join(dir, '..', 'recorrido.mp4');
-    const res = await fetch(trabajo.video.startsWith('http') ? trabajo.video : `${BASE}${trabajo.video}`);
-    if (!res.ok) throw new Error(`No pude bajar el video (HTTP ${res.status})`);
-    await fs.writeFile(destino, Buffer.from(await res.arrayBuffer()));
+    // Si ya está bajado no se vuelve a bajar: la segunda pasada saca otros cuadros del mismo.
+    if (!await fs.stat(destino).then(f => f.size > 0, () => false)) {
+        const res = await fetch(trabajo.video.startsWith('http') ? trabajo.video : `${BASE}${trabajo.video}`);
+        if (!res.ok) throw new Error(`No pude bajar el video (HTTP ${res.status})`);
+        await fs.writeFile(destino, Buffer.from(await res.arrayBuffer()));
+    }
 
     const avisar = async (texto) => {
         log(`  ${texto}`);
         await api(`/jobs/${trabajo.id}`, { step: 'eligiendo cuadros', progress: 12, log: `${texto}\n` }).catch(() => {});
     };
-    const { total, elegidos } = await desdeVideo(destino, dir, { alAvanzar: avisar });
+    const { total, elegidos } = await desdeVideo(destino, dir, { ...opciones, alAvanzar: avisar });
     log(`  ${elegidos} cuadros útiles de ${total}`);
     return elegidos;
 }
 
+/** Cuántas tomas entraron en el modelo, leído de lo que informó el pipeline. */
+const cobertura = (texto) => {
+    const m = [...texto.matchAll(/Fotos ubicadas en el modelo: (\d+) de (\d+)/g)].pop();
+    return m ? { ubicadas: Number(m[1]), total: Number(m[2]) } : { ubicadas: 0, total: 0 };
+};
+
+/**
+ * Calcula las cámaras y mira cuánta casa entró, antes de entrenar. Si entró poco vuelve a
+ * sacar cuadros del video —todos, no uno de cada dos— y lo calcula de nuevo: más cuadros es
+ * menos distancia entre uno y el siguiente, y esa distancia es justo lo que decide si dos
+ * tomas se encadenan o el recorrido se parte en pedazos sueltos.
+ *
+ * Se entrena sobre el mejor de los dos. Medir cuesta minutos y entrenar cuesta horas, así que
+ * entrenar sobre un modelo partido es tirar esas horas sabiendo que se van a tirar.
+ */
+async function mejorArranque(trabajo, base) {
+    const probar = async (nombre, opciones) => {
+        const fotos = path.join(base, `fotos-${nombre}`);
+        const salida = path.join(base, `salida-${nombre}`);
+        if (trabajo.video) await desdeElVideo(trabajo, fotos, opciones);
+        else await bajarFotos(trabajo, fotos);
+        const texto = await reconstruir(trabajo, fotos, salida, ['--solo-sfm']);
+        const c = cobertura(texto);
+        log(`  ${nombre}: ${c.ubicadas} de ${c.total} tomas ubicadas`);
+        return { fotos, salida, ...c };
+    };
+
+    const normal = await probar('normal', {});
+    // Con fotos sueltas no hay más cuadros que sacar, y con buena cobertura no hace falta.
+    if (!trabajo.video || !normal.total || normal.ubicadas / normal.total >= 0.6) return normal;
+
+    log('  entró menos de la mitad: pruebo con todos los cuadros del video');
+    await api(`/jobs/${trabajo.id}`, {
+        step: 'probando con más cuadros',
+        progress: 35,
+        log: '\nEntró poca casa en el modelo. Saco todos los cuadros del video y lo calculo de nuevo.\n'
+    }).catch(() => {});
+    const denso = await probar('denso', { objetivo: Infinity });
+    return denso.ubicadas > normal.ubicadas ? denso : normal;
+}
+
 async function procesar(trabajo) {
     const base = await fs.mkdtemp(path.join(os.tmpdir(), `inmo3d-${trabajo.id}-`));
-    const fotos = path.join(base, 'fotos');
-    const salida = path.join(base, 'salida');
     const dejarDormir = noDormir();
     log(`▶ ${trabajo.titulo} (${trabajo.video ? 'video' : `${trabajo.fotos.length} fotos`})`);
     try {
@@ -180,8 +225,9 @@ async function procesar(trabajo) {
         for (let intento = 0; ; intento++) {
             const desde = Date.now();
             try {
-                if (trabajo.video) await desdeElVideo(trabajo, fotos);
-                else await bajarFotos(trabajo, fotos);
+                // El cálculo de cámaras del mejor intento ya quedó hecho acá adentro, así
+                // que esta corrida lo reusa y va derecho a entrenar.
+                const { fotos, salida } = await mejorArranque(trabajo, base);
                 await reconstruir(trabajo, fotos, salida);
                 const url = await subir(trabajo, path.join(salida, 'model.sog'));
                 await api(`/jobs/${trabajo.id}`, { splatUrl: url, file: `${trabajo.id}/splat/model.sog` });

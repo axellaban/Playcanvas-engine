@@ -11,7 +11,7 @@
 # Las etapas se anuncian con "::step:<nombre>" para que el servidor muestre el progreso.
 set -euo pipefail
 
-PHOTOS=""; OUT=""; WORK=""
+PHOTOS=""; OUT=""; WORK=""; SOLO_SFM=""
 SFM="${INMO3D_SFM:-glomap}"
 TRAINER="${INMO3D_TRAINER:-brush}"
 STEPS="${INMO3D_STEPS:-15000}"
@@ -26,6 +26,7 @@ while [[ $# -gt 0 ]]; do
     --trainer) TRAINER="$2"; shift 2 ;;
     --steps) STEPS="$2"; shift 2 ;;
     --matcher) MATCHER="$2"; shift 2 ;;
+    --solo-sfm) SOLO_SFM=1; shift ;;   # calcula las cámaras, informa cobertura y para
     *) echo "Argumento desconocido: $1" >&2; exit 2 ;;
   esac
 done
@@ -124,7 +125,7 @@ if [[ ! -d "$PROJECT/sparse/0" ]]; then
 
   colmap feature_extractor \
     --database_path "$DB" --image_path "$PHOTOS" \
-    --ImageReader.single_camera 1 --ImageReader.camera_model OPENCV \
+    --ImageReader.single_camera 1 --ImageReader.camera_model SIMPLE_RADIAL \
     $OPC_EXTRAER
 
   colmap "${MATCHER}_matcher" --database_path "$DB" $OPC_EMPAREJAR
@@ -196,6 +197,13 @@ REGISTRADAS=$(cuantas "$PROJECT/sparse/0")
 echo "Fotos ubicadas en el modelo: $REGISTRADAS de $N"
 if [[ "$REGISTRADAS" -lt $(( N / 2 )) ]]; then
   echo "Parte del recorrido no se pudo enganchar: el 3D va a cubrir sólo eso. Sigo igual."
+fi
+
+# Con --solo-sfm paramos acá. Sirve para probar una extracción de cuadros y ver cuánta casa
+# entra antes de gastar horas entrenando: lo caro es el entrenamiento, no esto.
+if [[ -n "$SOLO_SFM" ]]; then
+  echo "::step:sfm-listo"
+  exit 0
 fi
 
 # ------------------------------------------------------------------ 2. entrenamiento 3DGS
