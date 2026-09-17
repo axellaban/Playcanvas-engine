@@ -7,29 +7,21 @@ let CFG = { ai: { text: false, image: false }, storage: 'fs', canReconstruct: tr
 // ---------------------------------------------------------------- listado
 
 /**
- * Abre un departamento real escaneado, servido por la propia app. Sirve para dos cosas: ver
- * cómo se siente un recorrido terminado antes de tener el propio, y mostrárselo a un cliente
- * sin depender de que haya una reconstrucción lista. Va en una propiedad aparte para no
- * pisarle la escena a ninguna de verdad.
+ * Abre la casa de ejemplo. Es un par de archivos fijos servidos por la propia app: no crea
+ * ninguna propiedad, no toca el almacenamiento y no pide sesión. Sirve para ver cómo se siente
+ * un recorrido terminado antes de tener el propio, y para mostrárselo a un cliente sin que
+ * dependa de que esté todo lo demás en pie. Antes creaba una propiedad de verdad, y el día que
+ * el Blob Store se suspendió el botón dejó de andar.
  */
-async function verEjemplo(props) {
-    if (!CFG.auth?.authenticated) return toast('Iniciá sesión para ver el ejemplo.', true);
-    const ya = props.find(p => p.meta.title.startsWith('Ejemplo'));
-    const prop = ya || await api('/properties', {
-        method: 'POST', body: { meta: { title: 'Ejemplo: departamento escaneado' } }
-    });
-    await api(`/properties/${prop.id}/attach`, {
-        method: 'POST',
-        body: { kind: 'splat', url: `${location.origin}/ejemplo/departamento.sog` }
-    });
-    location.href = `/tour.html?id=${prop.id}`;
-}
+const verEjemplo = () => {
+    location.href = '/tour.html?demo=1';
+};
 
 async function renderList() {
     const props = await api('/properties');
     const ejemplo = h('button.btn.sm', {});
     ejemplo.textContent = '👀 Ver un ejemplo';
-    ejemplo.onclick = busy(ejemplo, () => verEjemplo(props).catch(e => toast(e.message, true)));
+    ejemplo.onclick = verEjemplo;
     view.replaceChildren(
         h('div', { style: { display: 'flex', alignItems: 'baseline', gap: '12px', marginBottom: '16px' } },
             h('h1', {}, 'Propiedades'),
@@ -45,8 +37,7 @@ async function renderList() {
                 h('div', { style: { display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' } },
                     h('button.btn.primary', { onclick: () => newProperty().catch(e => toast(e.message, true)) },
                         'Crear la primera'),
-                    h('button.btn', { onclick: () => verEjemplo([]).catch(e => toast(e.message, true)) },
-                        '👀 Ver un ejemplo terminado')))
+                    h('button.btn', { onclick: verEjemplo }, '👀 Ver un ejemplo terminado')))
     );
 }
 

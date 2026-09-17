@@ -20,7 +20,10 @@ export async function latido(nombre = 'worker') {
 }
 
 export async function worker() {
-    const estado = await storage.readJson(ESTADO);
+    // Si el almacenamiento no contesta, eso se avisa donde importa —al listar las propiedades—
+    // y no acá: saber si el worker está prendido es un dato de color, y hacerlo explotar dejaba
+    // sin configuración a toda la app, incluido el aviso que explica qué está pasando.
+    const estado = await storage.readJson(ESTADO).catch(() => null);
     if (!estado?.visto) return { conectado: false, visto: null };
     return { conectado: Date.now() - Date.parse(estado.visto) < VIVO, visto: estado.visto, nombre: estado.nombre };
 }

@@ -19,13 +19,21 @@ const die = (msg) => {
     throw new Error(msg);
 };
 
-if (!id) die('Falta el identificador de la propiedad (?id=).');
-const prop = await api(`/properties/${encodeURIComponent(id)}`);
+// El ejemplo se sirve como dos archivos fijos y nada más. No pasa por la API, ni por el
+// almacenamiento, ni pide sesión: es lo que se le muestra a un cliente parado en la puerta de
+// un departamento, y tiene que andar siempre. Cuando dependía de crear una propiedad, el día
+// que se suspendió el Blob Store dejó de abrir — justo cuando más falta hacía.
+const demo = qs.get('demo') === '1';
+if (!demo && !id) die('Falta el identificador de la propiedad (?id=).');
+const prop = demo ?
+    await fetch('/ejemplo/casa.json').then(r => r.json()) :
+    await api(`/properties/${encodeURIComponent(id)}`);
 if (!prop.scene.splatUrl) {
     die('Esta propiedad todavía no tiene escena 3D. Subí un splat desde el panel.');
 }
-const CFG = await config();
-const minimal = qs.get('ui') === 'min' || !CFG.auth?.authenticated;
+const CFG = demo ? { ai: {}, auth: { authenticated: false } } : await config();
+// El ejemplo se mira como lo miraría un interesado: sin las herramientas del dueño.
+const minimal = demo || qs.get('ui') === 'min' || !CFG.auth?.authenticated;
 
 // Una escena pesa decenas de MB: en 4G, un spinner mudo parece que se colgó.
 const mb = bytes => `${(bytes / 1e6).toFixed(1)} MB`;

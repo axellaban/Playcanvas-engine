@@ -124,6 +124,9 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
     else aabb.halfExtents.set(5, 5, 5);
     const center = aabb.center.clone();
     const radius = Math.max(aabb.halfExtents.length(), 1);
+    // Se calculan acá porque los usan dos cosas: dónde arranca la cámara y el modo caminar.
+    const piso = scene.floorY ?? aabb.getMin().y + 0.02;
+    const ojos = (scene.eyeHeight ?? 1.62) / (scene.metersPerUnit || 1);
     // Lo lejano se sigue dibujando: el plano de corte mira el box crudo, no el de la casa.
     const alcance = crudo ? Math.max(crudo.halfExtents.length() * 4, radius * 12) : radius * 12;
 
@@ -135,8 +138,15 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
         fov: 70,
         farClip: Math.max(alcance, 200)
     });
-    camera.setPosition(center.x + radius * 1.4, center.y + radius * 0.5, center.z + radius * 1.4);
-    camera.lookAt(center);
+    // Un escaneo de interior mirado desde afuera no muestra la casa: muestra el revés de las
+    // paredes. Matterport, Polycam y Zillow arrancan los tres adentro y parados. Acá igual: la
+    // cámara empieza a la altura de los ojos, corrida hacia una punta y mirando a lo largo del
+    // ambiente, que es lo que ve alguien que abre la puerta y entra.
+    const aLoLargo = aabb.halfExtents.x >= aabb.halfExtents.z ?
+        [aabb.halfExtents.x * 0.82, 0] : [0, aabb.halfExtents.z * 0.82];
+    const alturaOjos = piso + Math.min(ojos, aabb.halfExtents.y * 1.7);
+    camera.setPosition(center.x - aLoLargo[0], alturaOjos, center.z - aLoLargo[1]);
+    camera.lookAt(center.x, alturaOjos, center.z);
     camera.addComponent('script');
     app.root.addChild(camera);
 
@@ -157,7 +167,7 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
     const picker = new Picker(app, 1, 1, true);
     const state = {
         mode: 'orbita',
-        floorY: scene.floorY ?? aabb.getMin().y + 0.02,
+        floorY: piso,
         eyeHeight: scene.eyeHeight ?? 1.62,
         metersPerUnit: scene.metersPerUnit ?? 1,
         tween: null,

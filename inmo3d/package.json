@@ -14,7 +14,8 @@
     "worker:uninstall": "node tools/servicio.mjs uninstall",
     "dev": "node --watch server/index.mjs",
     "engine:build": "node ../build.mjs --format esm --type rel",
-    "reconstruct": "bash pipeline/reconstruct.sh"
+    "reconstruct": "bash pipeline/reconstruct.sh",
+    "demo:publicar": "node tools/publicar-demo.mjs"
   },
   "engines": {
     "node": ">=20"

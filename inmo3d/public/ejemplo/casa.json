@@ -1,0 +1,127 @@
+{
+  "id": "ejemplo",
+  "meta": {
+    "title": "Casa del Parque",
+    "address": "Av. del Libertador 3200",
+    "city": "CABA",
+    "operation": "venta",
+    "type": "departamento",
+    "price": 289000,
+    "currency": "USD",
+    "bedrooms": 2,
+    "bathrooms": 1,
+    "areaCovered": 80,
+    "areaTotal": 120,
+    "language": "es",
+    "notes": ""
+  },
+  "photos": [],
+  "video": null,
+  "scene": {
+    "floorY": 0.02,
+    "eyeHeight": 1.62,
+    "metersPerUnit": 1,
+    "yaw": 0,
+    "pitch": 0,
+    "roll": 0,
+    "scale": 1,
+    "splat": "ejemplo/casa.ply",
+    "splatUrl": "/ejemplo/casa.ply"
+  },
+  "tour": [
+    {
+      "id": "wp0",
+      "name": "Entrada",
+      "desc": "Se entra directo al estar-comedor: 10 x 8 m sin columnas en el medio.",
+      "pos": [
+        1.2,
+        1.62,
+        1.2
+      ],
+      "look": [
+        5,
+        1.5,
+        4.5
+      ]
+    },
+    {
+      "id": "wp1",
+      "name": "Cocina",
+      "desc": "Mesada en L de 3 metros con alacena. Da al comedor sin muro de por medio.",
+      "pos": [
+        2.3,
+        1.62,
+        2
+      ],
+      "look": [
+        0.6,
+        1.3,
+        1.9
+      ]
+    },
+    {
+      "id": "wp2",
+      "name": "Estar",
+      "desc": "El ventanal del fondo entra con sol de tarde sobre la alfombra.",
+      "pos": [
+        4.6,
+        1.62,
+        4.6
+      ],
+      "look": [
+        3.2,
+        1.4,
+        6.6
+      ]
+    },
+    {
+      "id": "wp3",
+      "name": "Dormitorio",
+      "desc": "Dormitorio principal con ventana al lateral y placard a estrenar.",
+      "pos": [
+        7.8,
+        1.62,
+        4.6
+      ],
+      "look": [
+        7.8,
+        1.4,
+        2.4
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "id": "hs0",
+      "title": "Ventanal 3,2 m",
+      "body": "DVH con perfilería de aluminio, orientación noroeste.",
+      "pos": [
+        4.4,
+        1.6,
+        7.9
+      ]
+    },
+    {
+      "id": "hs1",
+      "title": "Mesada de granito",
+      "body": "Bajo mesada con horno incluido en la operación.",
+      "pos": [
+        0.7,
+        1.1,
+        1.9
+      ]
+    }
+  ],
+  "measures": [],
+  "ai": {
+    "audit": null,
+    "listing": null,
+    "rooms": null,
+    "staged": []
+  },
+  "job": {
+    "status": "listo",
+    "step": "listo",
+    "progress": 100
+  }
+}
