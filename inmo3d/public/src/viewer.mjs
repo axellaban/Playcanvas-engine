@@ -2,13 +2,14 @@
 // que pide el rubro inmobiliario: órbita (ver la casa desde afuera) y caminata tipo Matterport
 // (click en el piso = teletransporte). Encima montamos medición, hotspots y captura para la IA.
 import {
-    AppBase, AppOptions, Asset, CameraComponentSystem, Color, ContainerHandler, Entity,
+    AppBase, AppOptions, Asset, BoundingBox, CameraComponentSystem, Color, ContainerHandler, Entity,
     FILLMODE_NONE, GSplatComponentSystem, GSplatHandler, Keyboard, LightComponentSystem, Mouse,
     Picker, RESOLUTION_AUTO, RenderComponentSystem, ScriptComponentSystem, ScriptHandler,
     TONEMAP_ACES, TextureHandler, TouchDevice, Vec2, Vec3, XRSPACE_LOCALFLOOR, XRTYPE_VR,
     createGraphicsDevice
 } from 'playcanvas';
 import { CameraControls } from 'playcanvas/scripts/esm/camera-controls.mjs';
+import { cajaRobusta } from './encuadre.mjs';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const easeInOut = t => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -101,9 +102,30 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
     splat.addComponent('gsplat', { asset, castShadows: false });
     app.root.addChild(splat);
 
-    const aabb = splat.gsplat.customAabb;
-    const center = aabb ? aabb.center.clone() : new Vec3();
-    const radius = aabb ? Math.max(aabb.halfExtents.length(), 1) : 5;
+    function applyTransform(s = {}) {
+        splat.setLocalEulerAngles(s.pitch ?? 0, s.yaw ?? 0, s.roll ?? 0);
+        const k = s.scale ?? 1;
+        splat.setLocalScale(k, k, k);
+    }
+
+    // Se endereza la escena antes de encuadrarla: si alguien la giró desde el panel, la cámara
+    // tiene que mirar la casa como quedó, no como venía. Antes se orientaba después y una casa
+    // enderezada volvía a abrirse con el encuadre de la torcida.
+    applyTransform(scene);
+    const crudo = splat.gsplat.customAabb;
+    // Las posiciones salen del asset que cargamos acá arriba y no de `splat.gsplat.asset`:
+    // esa propiedad devuelve el número de identificación del asset, no el asset, así que de
+    // ahí no cuelga nada y el encuadre se quedaba en silencio con la caja cruda.
+    const caja = cajaRobusta(asset.resource?.centers);
+    const local = new BoundingBox();
+    if (caja) local.setMinMax(new Vec3(...caja.min), new Vec3(...caja.max));
+    const aabb = new BoundingBox();
+    if (caja || crudo) aabb.setFromTransformedAabb(caja ? local : crudo, splat.getWorldTransform());
+    else aabb.halfExtents.set(5, 5, 5);
+    const center = aabb.center.clone();
+    const radius = Math.max(aabb.halfExtents.length(), 1);
+    // Lo lejano se sigue dibujando: el plano de corte mira el box crudo, no el de la casa.
+    const alcance = crudo ? Math.max(crudo.halfExtents.length() * 4, radius * 12) : radius * 12;
 
     // ------------------------------------------------------------------ cámara
     const camera = new Entity('camera');
@@ -111,7 +133,7 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
         clearColor: new Color(0.05, 0.06, 0.08),
         toneMapping: TONEMAP_ACES,
         fov: 70,
-        farClip: Math.max(radius * 12, 200)
+        farClip: Math.max(alcance, 200)
     });
     camera.setPosition(center.x + radius * 1.4, center.y + radius * 0.5, center.z + radius * 1.4);
     camera.lookAt(center);
@@ -135,20 +157,12 @@ export async function createViewer({ canvas, splatUrl, scene = {}, gpu = 'webgl2
     const picker = new Picker(app, 1, 1, true);
     const state = {
         mode: 'orbita',
-        floorY: scene.floorY ?? (aabb ? aabb.getMin().y + 0.02 : 0),
+        floorY: scene.floorY ?? aabb.getMin().y + 0.02,
         eyeHeight: scene.eyeHeight ?? 1.62,
         metersPerUnit: scene.metersPerUnit ?? 1,
         tween: null,
         walk: { yaw: 0, pitch: 0, keys: new Set() }
     };
-
-    applyTransform(scene);
-
-    function applyTransform(s = {}) {
-        splat.setLocalEulerAngles(s.pitch ?? 0, s.yaw ?? 0, s.roll ?? 0);
-        const k = s.scale ?? 1;
-        splat.setLocalScale(k, k, k);
-    }
 
     // ------------------------------------------------------------------ picking
     const nextFrame = () => new Promise((resolve) => {
