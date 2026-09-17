@@ -16,7 +16,9 @@
     "engine:build": "node ../build.mjs --format esm --type rel",
     "reconstruct": "bash pipeline/reconstruct.sh",
     "demo:publicar": "node tools/publicar-demo.mjs",
-    "rescatar": "node tools/rescatar.mjs"
+    "rescatar": "node tools/rescatar.mjs",
+    "app:install": "node tools/servicio.mjs app",
+    "app:uninstall": "node tools/servicio.mjs app uninstall"
   },
   "engines": {
     "node": ">=20"

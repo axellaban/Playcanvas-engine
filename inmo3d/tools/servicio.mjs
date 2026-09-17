@@ -17,9 +17,35 @@ import { fileURLToPath } from 'node:url';
 
 const correr = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ETIQUETA = 'com.inmo3d.worker';
-const PLIST = path.join(os.homedir(), 'Library', 'LaunchAgents', `${ETIQUETA}.plist`);
-const LOG = path.join(os.homedir(), 'Library', 'Logs', 'inmo3d-worker.log');
+// Dos servicios con la misma forma. El worker hace el trabajo pesado; la app es la pantalla
+// que se abre desde la Mac y desde el celular. Antes la app vivía sólo mientras hubiera una
+// terminal abierta, y cerrar esa ventana la apagaba sin avisar.
+const SERVICIOS = {
+    worker: {
+        etiqueta: 'com.inmo3d.worker',
+        script: 'tools/worker.mjs',
+        log: 'inmo3d-worker.log',
+        // El worker habla con la app: necesita saber dónde está y con qué clave entrar.
+        pideDestino: true,
+        listo: url => `El worker ya está corriendo y arranca solo cada vez que prendas la Mac.
+
+  App:      ${url}`
+    },
+    app: {
+        etiqueta: 'com.inmo3d.app',
+        script: 'server/index.mjs',
+        log: 'inmo3d-app.log',
+        pideDestino: false,
+        listo: () => `La app ya está corriendo y arranca sola cada vez que prendas la Mac.
+No hace falta dejar ninguna terminal abierta.
+
+  Desde la Mac:      http://localhost:${process.env.PORT || 3113}
+  Desde el celular:  fijate la dirección de la wifi en el registro`
+    }
+};
+
+const rutaPlist = etiqueta => path.join(os.homedir(), 'Library', 'LaunchAgents', `${etiqueta}.plist`);
+const rutaLog = nombre => path.join(os.homedir(), 'Library', 'Logs', nombre);
 
 const salir = (mensaje) => {
     console.error(mensaje);
@@ -58,11 +84,11 @@ const escapar = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').repl
  * lo ignora en silencio y el worker no arranca nunca, así que conviene poder probarlo.
  * Acá no va ninguna credencial: estos archivos los lee cualquiera que use la máquina.
  */
-export const armarPlist = ({ nodo, script, dir, ruta, log }) => `<?xml version="1.0" encoding="UTF-8"?>
+export const armarPlist = ({ etiqueta = 'com.inmo3d.worker', nodo, script, dir, ruta, log }) => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>${ETIQUETA}</string>
+  <key>Label</key><string>${escapar(etiqueta)}</string>
   <key>ProgramArguments</key>
   <array>
     <string>${escapar(nodo)}</string>
@@ -81,24 +107,31 @@ export const armarPlist = ({ nodo, script, dir, ruta, log }) => `<?xml version="
 </plist>
 `;
 
-async function instalar() {
+async function instalar(cual) {
+    const servicio = SERVICIOS[cual];
     if (os.platform() !== 'darwin') {
         salir('Esto instala un servicio de macOS. En otro sistema, corré `npm run worker` a mano.');
     }
-    const env = await leerEnv();
-    const url = process.env.INMO3D_URL || env.INMO3D_URL;
-    const token = process.env.INMO3D_ADMIN_TOKEN || env.INMO3D_ADMIN_TOKEN;
-    if (!url || !token) {
-        salir('Falta la dirección de la app o la clave. Corré:\n\n' +
-            '  INMO3D_URL=https://tu-app.vercel.app INMO3D_ADMIN_TOKEN=tuclave npm run worker:install\n');
+    const PLIST = rutaPlist(servicio.etiqueta);
+    const LOG = rutaLog(servicio.log);
+    let url = '';
+    if (servicio.pideDestino) {
+        const env = await leerEnv();
+        url = process.env.INMO3D_URL || env.INMO3D_URL;
+        const token = process.env.INMO3D_ADMIN_TOKEN || env.INMO3D_ADMIN_TOKEN;
+        if (!url || !token) {
+            salir('Falta la dirección de la app o la clave. Corré:\n\n' +
+                '  INMO3D_URL=https://tu-app.vercel.app INMO3D_ADMIN_TOKEN=tuclave npm run worker:install\n');
+        }
+        await guardarEnv({ INMO3D_URL: url, INMO3D_ADMIN_TOKEN: token });
     }
-    await guardarEnv({ INMO3D_URL: url, INMO3D_ADMIN_TOKEN: token });
 
     // El PATH de un servicio es mínimo y no incluye Homebrew: sin esto no encuentra ni
     // colmap ni ffmpeg. Le pasamos el de la terminal desde donde se instala, que sí los tiene.
     const plist = armarPlist({
+        etiqueta: servicio.etiqueta,
         nodo: process.execPath,
-        script: path.join(ROOT, 'tools', 'worker.mjs'),
+        script: path.join(ROOT, ...servicio.script.split('/')),
         dir: ROOT,
         ruta: process.env.PATH || '/usr/bin:/bin',
         log: LOG
@@ -111,23 +144,24 @@ async function instalar() {
     await correr('launchctl', ['unload', PLIST]).catch(() => {});
     await correr('launchctl', ['load', '-w', PLIST]);
 
-    console.log(`Listo. El worker ya está corriendo y va a arrancar solo cada vez que prendas la Mac.
+    console.log(`Listo. ${servicio.listo(url)}
 
-  App:      ${url}
   Registro: ${LOG}
 
-No hace falta que dejes ninguna ventana abierta. Subí el video desde el teléfono y el
-recorrido se arma solo. Para ver cómo va:  tail -f "${LOG}"
-Para sacarlo:  npm run worker:uninstall`);
+Para ver cómo va:  tail -f "${LOG}"
+Para sacarlo:  npm run ${cual === 'app' ? 'app' : 'worker'}:uninstall`);
 }
 
-async function desinstalar() {
+async function desinstalar(cual) {
+    const PLIST = rutaPlist(SERVICIOS[cual].etiqueta);
     await correr('launchctl', ['unload', '-w', PLIST]).catch(() => {});
     await fs.rm(PLIST, { force: true });
-    console.log('Servicio sacado. El worker ya no arranca solo; para correrlo a mano: npm run worker');
+    console.log(`Servicio "${cual}" sacado. Ya no arranca solo.`);
 }
 
 // Sólo actúa cuando se lo corre de verdad; importarlo (por ejemplo desde un test) no hace nada.
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-    await (process.argv[2] === 'uninstall' ? desinstalar() : instalar());
+    // Se lo llama como:  servicio.mjs [app|worker] [uninstall]
+    const cual = process.argv.includes('app') ? 'app' : 'worker';
+    await (process.argv.includes('uninstall') ? desinstalar(cual) : instalar(cual));
 }

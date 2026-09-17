@@ -48,3 +48,15 @@ test('el plist no lleva la clave adentro', () => {
     });
     assert.doesNotMatch(p, /INMO3D_ADMIN_TOKEN|INMO3D_URL/, 'ninguna credencial tendría que aparecer acá');
 });
+
+test('cada servicio lleva su propio nombre', () => {
+    // Son dos servicios distintos con la misma forma: el worker, que hace el trabajo pesado, y
+    // la app, que es la pantalla. Si compartieran el nombre, instalar uno apagaría al otro y
+    // el segundo se iría sin avisar, que es el peor modo de fallar de launchd.
+    const base = { nodo: '/usr/bin/node', dir: '/a', ruta: '/usr/bin', log: '/tmp/x.log' };
+    const worker = armarPlist({ ...base, script: '/a/tools/worker.mjs' });
+    const app = armarPlist({ ...base, etiqueta: 'com.inmo3d.app', script: '/a/server/index.mjs' });
+    assert.match(worker, /<key>Label<\/key><string>com\.inmo3d\.worker<\/string>/);
+    assert.match(app, /<key>Label<\/key><string>com\.inmo3d\.app<\/string>/);
+    assert.notEqual(worker, app);
+});
