@@ -99,7 +99,11 @@ test('cola de reconstrucción: de la web al worker y de vuelta', async (t) => {
         });
         t.after(() => worker.kill());
 
-        const limite = Date.now() + 30000;
+        // El tope es una red de seguridad para que el test no quede colgado para siempre, no
+        // una medida de lo que tiene que tardar: en cuanto el trabajo termina, sale solo. Con
+        // treinta segundos fallaba en falso cuando los archivos de prueba corren todos juntos y
+        // se pelean por el procesador. Un test que grita en falso es un test que dejás de mirar.
+        const limite = Date.now() + 120000;
         let final;
         while (Date.now() < limite) {
             const { data } = await api(`/properties/${id}/job`);
