@@ -74,9 +74,16 @@ echo "Fotos encontradas: $N"
 # Comparar todas las tomas contra todas es lo que más engancha, pero crece al cuadrado y con
 # muchas fotos se vuelve eterno. Ahí el orden del video es información gratis: se comparan las
 # vecinas más saltos cada vez más largos, que es lo que reencuentra un ambiente ya visitado.
+#
+# El problema es que en una casa se sale de un ambiente y se vuelve más tarde, y ahí las vecinas
+# no alcanzan para darse cuenta de que es el mismo lugar: el recorrido se parte en pedazos
+# sueltos. Con 275 cuadros, el tope viejo de 200 hacía exactamente eso y sin decir una palabra.
+# Ahora el tope es más alto y, sobre todo, se anuncia qué camino se tomó.
+TOPE_TODOS="${INMO3D_EXHAUSTIVO:-400}"
 if [[ -z "$MATCHER" ]]; then
-  if [[ "$N" -le 200 ]]; then MATCHER=exhaustive; else MATCHER=sequential; fi
+  if [[ "$N" -le "$TOPE_TODOS" ]]; then MATCHER=exhaustive; else MATCHER=sequential; fi
 fi
+echo "Comparación entre tomas: $MATCHER ($N cuadros; todas contra todas hasta $TOPE_TODOS)"
 
 have colmap || die "Falta COLMAP. Instalalo (brew install colmap / apt install colmap) o usá pipeline/Dockerfile."
 
@@ -133,6 +140,12 @@ if [[ "$INMO3D_GPU" == 0 ]]; then
   OPC_EXTRAER="$OPC_EXTRAER $(si_acepta "$AYUDA_EXTRAER" --SiftExtraction.estimate_affine_shape 1)"
   OPC_EXTRAER="$OPC_EXTRAER $(si_acepta "$AYUDA_EXTRAER" --SiftExtraction.domain_size_pooling 1)"
 fi
+
+# Cuánto contraste se le exige a un punto para darlo por reconocible. El valor de fábrica está
+# pensado para fotos sacadas a propósito; un cuadro de video es más blando, y con ese umbral cada
+# cuadro entregaba entre 600 y 1300 puntos cuando tendría que entregar miles. Con pocos puntos no
+# hay enganche posible entre dos tomas, y sin enganches la casa se reconstruye en pedazos.
+OPC_EXTRAER="$OPC_EXTRAER $(si_acepta "$AYUDA_EXTRAER" --SiftExtraction.peak_threshold "${INMO3D_PICO:-0.004}")"
 
 DB="$WORK/database.db"
 SPARSE="$WORK/sparse"

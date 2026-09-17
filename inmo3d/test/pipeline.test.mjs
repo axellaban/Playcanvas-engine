@@ -49,7 +49,8 @@ if [[ " $* " == *" --help "* ]]; then
   echo "Options:"
   case "$sub" in
     feature_extractor) echo "  --SiftExtraction.estimate_affine_shape
-  --SiftExtraction.domain_size_pooling" ;;
+  --SiftExtraction.domain_size_pooling
+  --SiftExtraction.peak_threshold" ;;
     *_matcher) echo "  --SiftMatching.guided_matching
   --SiftMatching.min_num_inliers
   --SequentialMatching.overlap
@@ -68,6 +69,7 @@ arg() { local q="$1" c=""; shift; for a in "$@"; do
   [[ -n "$c" ]] && { echo "$a"; return; }; [[ "$a" == "$q" ]] && c=1; done; }
 
 case "$sub" in
+  feature_extractor) echo "extractor opciones: $*" ;;&
   mapper)
     out="$(arg --output_path "$@")"
     echo "mapper opciones: $*"
@@ -275,4 +277,38 @@ test('medir la cobertura nunca se saltea, aunque haya un .sog viejo', async () =
     assert.match(stdout, /::step:sfm-listo/, 'tiene que medir igual');
     assert.match(stdout, /Fotos ubicadas en el modelo: 25 de 25/, 'e informar la cobertura');
     assert.doesNotMatch(stdout, /Ya estaba hecho/, 'el atajo no es para medir');
+});
+
+test('le pide a cada cuadro más puntos reconocibles de los que pide de fábrica', async () => {
+    // Un cuadro de video es más blando que una foto sacada a propósito. Con el umbral de fábrica
+    // cada cuadro entregaba entre 600 y 1300 puntos cuando tendría que entregar miles, y con
+    // pocos puntos no hay enganche posible entre dos tomas: la casa se reconstruye en pedazos.
+    const { bin, fotos, salida } = await preparar();
+    const { stdout } = await correr('bash', [
+        path.join(RAIZ, 'pipeline', 'reconstruct.sh'),
+        '--photos', fotos, '--out', salida, '--sfm', 'colmap'
+    ], { cwd: RAIZ, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
+    assert.match(stdout, /extractor opciones:.*--SiftExtraction\.peak_threshold 0\.004/);
+});
+
+test('con muchos cuadros sigue comparando todos contra todos', async () => {
+    // Acá se partía el recorrido sin decir una palabra. En una casa se sale de un ambiente y se
+    // vuelve más tarde; comparando sólo con las tomas vecinas, nada reconoce que es el mismo
+    // lugar. Con 275 cuadros el tope viejo de 200 mandaba justo a ese camino.
+    const { bin, base, salida } = await preparar();
+    const muchas = path.join(base, 'muchas');
+    await mkdir(muchas, { recursive: true });
+    await Promise.all(Array.from({ length: 275 }, (_, i) => writeFile(path.join(muchas, `c${i}.jpg`), '')));
+    const entorno = { cwd: RAIZ, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } };
+    const args = ['--photos', muchas, '--out', salida, '--sfm', 'colmap', '--solo-sfm'];
+
+    const { stdout } = await correr('bash', [path.join(RAIZ, 'pipeline', 'reconstruct.sh'), ...args], entorno);
+    assert.match(stdout, /Comparación entre tomas: exhaustive \(275 cuadros/);
+
+    // Y por arriba del tope sigue habiendo un límite: comparar todas contra todas crece al
+    // cuadrado, y con miles de cuadros no termina nunca.
+    const bajo = { ...entorno, env: { ...entorno.env, INMO3D_EXHAUSTIVO: '100' } };
+    const otro = await correr('bash',
+        [path.join(RAIZ, 'pipeline', 'reconstruct.sh'), ...args, '--out', path.join(base, 'o2')], bajo);
+    assert.match(otro.stdout, /Comparación entre tomas: sequential/);
 });
