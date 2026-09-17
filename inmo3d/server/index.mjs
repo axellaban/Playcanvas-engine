@@ -12,6 +12,7 @@ import path from 'node:path';
 import { ROOT, DATA_DIR, ensureData } from './store.mjs';
 import { api } from './app.mjs';
 import * as ai from './ai.mjs';
+import { enLaRed } from './red.mjs';
 
 const ENGINE_ROOT = path.resolve(ROOT, '..');
 const WEB = path.join(ROOT, 'public');
@@ -103,6 +104,9 @@ const port = Number(process.env.PORT || 3113);
 server.listen(port, () => {
     const c = ai.config();
     console.log(`\n  Inmo3D en http://localhost:${port}`);
+    for (const ip of enLaRed()) {
+        console.log(`  Desde el celular (misma wifi): http://${ip}:${port}`);
+    }
     console.log(`  datos: ${DATA_DIR}`);
     console.log(`  IA texto: ${c.text ? c.textModel : 'sin configurar (falta ANTHROPIC_API_KEY)'}`);
     console.log(`  IA imagen: ${c.image ? c.imageProvider : 'sin configurar (INMO3D_IMAGE_PROVIDER)'}\n`);
