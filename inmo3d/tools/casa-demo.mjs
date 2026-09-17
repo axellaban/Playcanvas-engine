@@ -23,6 +23,32 @@ const rnd = (a = 1) => (Math.random() * 2 - 1) * a;
  * @returns {{ply: Buffer, puntos: number, tour: object[], hotspots: object[], escena: object}} La casa.
  */
 export function construirCasa({ densidad = 1 } = {}) {
+    // Medidas del ambiente. Van arriba porque las usa el cálculo de luz.
+    const W = 10, D = 8, H = 2.7;                      // 10 x 8 m, 2.70 m de altura
+
+    /**
+     * Cuánta luz recibe un punto. Sin esto la casa son cajas de color plano, todas igual de
+     * iluminadas, y el ojo no lee volumen: no distingue dónde termina una pared y empieza el piso.
+     *
+     * No hay que simular la física: alcanza con dos cosas que el ojo reconoce solo. Los rincones
+     * están más oscuros, porque ahí la luz rebota menos; y cerca de la ventana está más claro y
+     * más cálido. Se calcula sobre la posición del punto y se aplica a su color, así que no cuesta
+     * ni un byte más en el archivo.
+     * @param {number[]} p - Dónde está el punto.
+     * @returns {number} Por cuánto multiplicar su color.
+     */
+    function luz(p) {
+    // Qué tan adentro del cuarto está, mirando cada par de paredes opuestas.
+        const d = [Math.min(p[0], W - p[0]), Math.min(p[1], H - p[1]), Math.min(p[2], D - p[2])]
+        .sort((a, b) => a - b);
+        // El punto está apoyado sobre alguna superficie, así que el primero siempre da casi cero.
+        // El que importa es el segundo: dice si además está pegado a otra, o sea, en un rincón.
+        const rincon = 0.62 + 0.38 * Math.min(1, d[1] / 0.9);
+        // La ventana del fondo: ilumina lo que tiene cerca, y con caída suave.
+        const aLaVentana = Math.hypot(p[0] - 4.4, p[1] - 1.7, p[2] - D);
+        return rincon * (1 + 0.30 / (1 + (aLaVentana / 2.6) ** 2));
+    }
+
     const pts = [];
     /**
      * Siembra una superficie rectangular de gaussians con un poco de ruido de color y de posición.
@@ -36,7 +62,7 @@ export function construirCasa({ densidad = 1 } = {}) {
      * @param root0.scale
      * @param root0.holes
      */
-    function surface({ origin, u, v, density = 620, color, rough = 0.010, scale = 0.026, holes = [] }) {
+    function surface({ origin, u, v, density = 620, color, rough = 0.010, scale = 0.026, holes = [], veta }) {
         // El eje contra el que hay que aplastar es el que ni u ni v recorren: la normal.
         const plano = [0, 1, 2].find(k => Math.abs(u[k]) < 1e-9 && Math.abs(v[k]) < 1e-9) ?? -1;
         const area = Math.hypot(...u) * Math.hypot(...v);
@@ -44,7 +70,8 @@ export function construirCasa({ densidad = 1 } = {}) {
         for (let i = 0; i < n; i++) {
             const a = Math.random(), b = Math.random();
             if (holes.some(hh => a > hh[0] && a < hh[1] && b > hh[2] && b < hh[3])) continue;
-            const shade = 1 + rnd(0.09);
+            const p = [0, 1, 2].map(k => origin[k] + u[k] * a + v[k] * b + rnd(rough));
+            const shade = (1 + rnd(0.09)) * luz(p) * (veta ? veta(p) : 1);
             // Con menos gaussians hay que hacerlos más grandes o la pared queda con agujeros:
             // al bajar la densidad a la mitad, la distancia entre uno y otro crece por raíz.
             // Se solapan a propósito: un disco que apenas toca al de al lado deja ver el fondo
@@ -52,7 +79,7 @@ export function construirCasa({ densidad = 1 } = {}) {
             // los vuelve una nube, sólo tapa las juntas.
             const ancho = scale / Math.sqrt(densidad) * 1.7 * (1 + rnd(0.25));
             pts.push({
-                p: [0, 1, 2].map(k => origin[k] + u[k] * a + v[k] * b + rnd(rough)),
+                p,
                 c: color.map(c => Math.min(1, Math.max(0, c * shade))),
                 // Aplastados contra su propia superficie, no bolitas. Una pared hecha de esferas
                 // se ve como una nube; hecha de discos pegados a la pared se ve como una pared.
@@ -85,12 +112,19 @@ export function construirCasa({ densidad = 1 } = {}) {
     }
 
     // ----------------------------------------------------------------- la casa
-    const W = 10, D = 8, H = 2.7;                      // 10 x 8 m, 2.70 m de altura
     const piso = [0.62, 0.45, 0.30];
     const pared = [0.88, 0.87, 0.84];
     const techo = [0.95, 0.95, 0.94];
 
-    surface({ origin: [0, 0, 0], u: [W, 0, 0], v: [0, 0, D], color: piso, density: 700, scale: 0.028 });
+    // El piso lleva vetas: una tabla cada 18 cm, con la junta más oscura. Es lo que hace que
+    // se lea "madera" y no "una mancha marrón".
+    surface({ origin: [0, 0, 0],
+        u: [W, 0, 0],
+        v: [0, 0, D],
+        color: piso,
+        density: 700,
+        scale: 0.028,
+        veta: q => (Math.abs((q[2] / 0.18) % 1 - 0.5) > 0.42 ? 0.72 : 1 + rnd(0.05)) });
     surface({ origin: [0, H, 0], u: [W, 0, 0], v: [0, 0, D], color: techo, density: 480 });
 
     // Paredes perimetrales. Los "holes" son la puerta y las ventanas (fracción u,v de cada pared).

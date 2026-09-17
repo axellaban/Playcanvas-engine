@@ -13,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { desdeVideo } from './fotogramas.mjs';
 import { dormir, porfiar } from './reintentar.mjs';
+import { comoVa, leerAvance } from './avance.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -122,6 +123,13 @@ async function bajarFotos(trabajo, dir) {
 /** Corre reconstruct.sh y traduce sus etapas en avance para el panel. */
 function reconstruir(trabajo, fotos, salida, extra = []) {
     const PASOS = { preparando: 15, sfm: 30, entrenando: 60, comprimiendo: 90, listo: 100 };
+    // Hasta dónde llega la barra cuando la etapa termina. El entrenamiento se lleva de 60 a 90,
+    // que es el tramo largo y el único donde vale la pena contar de a poquito.
+    const HASTA = { preparando: 30, sfm: 60, entrenando: 90, comprimiendo: 100 };
+    // Cada cuánto contar cómo va, aunque el entrenador no diga una palabra. Sin esto, con un
+    // entrenador callado la pantalla se queda quieta horas y parece colgado.
+    const LATIDO = 30_000;
+    const pasosPedidos = Number(trabajo.opciones.steps) || 15000;
     // Se puede apuntar a otro script (o a uno de prueba) sin tocar el worker.
     const script = process.env.INMO3D_PIPELINE || path.join(ROOT, 'pipeline', 'reconstruct.sh');
     const args = [script, '--photos', fotos, '--out', salida, ...extra];
@@ -134,22 +142,54 @@ function reconstruir(trabajo, fotos, salida, extra = []) {
         const hijo = spawn('bash', args, { cwd: ROOT });
         let pendiente = '';
         let todo = '';
+        let etapa = null;
+        let etapaDesde = Date.now();
+        let leido = null;
+
+        /** Cómo va ahora mismo: la etapa, el porcentaje y cuánto falta. */
+        const estado = () => (etapa && HASTA[etapa] ? comoVa({
+            etapa,
+            transcurrido: Date.now() - etapaDesde,
+            leido,
+            desde: PASOS[etapa],
+            hasta: HASTA[etapa]
+        }) : { step: etapa, progress: PASOS[etapa] });
+
+        const contar = (log = '') => api(`/jobs/${trabajo.id}`, { ...estado(), log }).catch(() => {});
+
         const salir = async (texto) => {
             process.stdout.write(texto);
             todo += texto;
             pendiente += texto;
-            const etapa = [...texto.matchAll(/::step:(\w+)/g)].pop()?.[1];
-            if (etapa || pendiente.length > 500) {
+            const nueva = [...texto.matchAll(/::step:(\w+)/g)].pop()?.[1];
+            if (nueva) {
+                etapa = nueva;
+                etapaDesde = Date.now();
+                leido = null;
+            }
+            // El entrenador va contando sus pasos: de ahí sale el porcentaje de verdad.
+            leido = leerAvance(texto, pasosPedidos) ?? leido;
+            if (nueva || pendiente.length > 500) {
                 const log = pendiente;
                 pendiente = '';
-                await api(`/jobs/${trabajo.id}`, { step: etapa, progress: PASOS[etapa], log }).catch(() => {});
+                await contar(log);
             }
         };
+        // Aunque el entrenador no escriba nada, cada tanto se avisa que sigue vivo y cuánto
+        // lleva. Es la diferencia entre "faltan tres horas" y "esto se colgó y nadie avisó".
+        const latido = setInterval(() => contar(), LATIDO);
+
         hijo.stdout.on('data', b => salir(b.toString()));
         hijo.stderr.on('data', b => salir(b.toString()));
-        hijo.on('error', reject);
-        hijo.on('close', code => (code === 0 ? resolve(todo) :
-            reject(new Error(`El pipeline terminó con código ${code}.`))));
+        hijo.on('error', (e) => {
+            clearInterval(latido);
+            reject(e);
+        });
+        hijo.on('close', (code) => {
+            clearInterval(latido);
+            return code === 0 ? resolve(todo) :
+                reject(new Error(`El pipeline terminó con código ${code}.`));
+        });
     });
 }
 
